@@ -13,6 +13,14 @@ import httpx
 log = logging.getLogger("quant_allinpodcast.youtube")
 _RFC3339_Z_SUFFIX = "+00:00"
 
+# Public InnerTube endpoint/key embedded in youtube.com's own web player (not a secret).
+_INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
+_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 class YouTubeClient:
     def __init__(
@@ -123,15 +131,77 @@ class YouTubeClient:
 
     def fetch_transcript(self, video_id: str, *, languages: list[str] | None = None) -> tuple[str, str | None, str]:
         languages = languages or ["en", "en-US"]
-        for lang in languages:
-            url = "https://www.youtube.com/api/timedtext"
-            resp = self.client.get(url, params={"v": video_id, "lang": lang, "fmt": "srv3"})
-            if resp.status_code != 200 or not resp.text.strip():
-                continue
-            text = _parse_srv(resp.text)
+
+        track = self._select_caption_track(self._list_caption_tracks(video_id), languages)
+        if track and track.get("baseUrl"):
+            body = self._fetch_timedtext_body(track["baseUrl"])
+            text = _parse_srv(body) if body else ""
             if text:
-                return text, lang, "youtube_timedtext"
+                return text, track.get("languageCode"), "youtube_timedtext"
+
+        # Legacy fallback: direct timedtext (srv1 default format).
+        for lang in languages:
+            resp = self.client.get(
+                "https://www.youtube.com/api/timedtext",
+                params={"v": video_id, "lang": lang},
+            )
+            if resp.status_code == 200 and resp.text.strip():
+                text = _parse_srv(resp.text)
+                if text:
+                    return text, lang, "youtube_timedtext"
+
         raise ValueError("transcript unavailable")
+
+    def _list_caption_tracks(self, video_id: str) -> list[dict]:
+        try:
+            resp = self.client.post(
+                _INNERTUBE_PLAYER_URL,
+                params={"key": _INNERTUBE_KEY},
+                json={
+                    "videoId": video_id,
+                    "context": {
+                        "client": {
+                            "clientName": "WEB",
+                            "clientVersion": "2.20240726.00.00",
+                            "hl": "en",
+                        }
+                    },
+                },
+                headers={
+                    "User-Agent": _BROWSER_USER_AGENT,
+                    "Content-Type": "application/json",
+                },
+            )
+            if resp.status_code != 200:
+                return []
+            renderer = (resp.json().get("captions") or {}).get(
+                "playerCaptionsTracklistRenderer"
+            ) or {}
+            return renderer.get("captionTracks") or []
+        except Exception:
+            log.warning("caption track listing failed for %s", video_id, exc_info=True)
+            return []
+
+    @staticmethod
+    def _select_caption_track(tracks: list[dict], languages: list[str]) -> dict | None:
+        if not tracks:
+            return None
+        for lang in languages:
+            for track in tracks:
+                if (track.get("languageCode") or "").lower() == lang.lower():
+                    return track
+        for lang in languages:
+            base = lang.split("-")[0].lower()
+            for track in tracks:
+                if (track.get("languageCode") or "").lower().startswith(base):
+                    return track
+        return tracks[0]
+
+    def _fetch_timedtext_body(self, base_url: str) -> str:
+        resp = self.client.get(base_url)
+        if resp.status_code == 200 and resp.text.strip():
+            return resp.text
+        return ""
 
     def _resolve_channel_id(self, *, channel_id: str = "", channel_handle: str = "") -> str:
         if channel_id:
@@ -191,8 +261,12 @@ def _parse_published_at(value: str | None) -> datetime | None:
 
 def _parse_srv(body: str) -> str:
     root = ET.fromstring(body)
+    nodes = root.findall(".//text")
+    if not nodes:
+        # srv3 format uses <p> elements (with <s> word children) instead of <text>.
+        nodes = root.findall(".//{*}p")
     chunks: list[str] = []
-    for node in root.findall(".//text"):
+    for node in nodes:
         raw = "".join(node.itertext())
         cleaned = re.sub(r"\s+", " ", html.unescape(raw)).strip()
         if cleaned:

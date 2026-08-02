@@ -88,3 +88,66 @@ def test_discovery_supports_multiple_channels():
     assert {item["channel_slug"] for item in items} == {"allin", "other"}
     assert any(p.get("channelId") == "UCALLIN" for _u, p in calls if "channelId" in p)
     assert any(p.get("channelId") == "UCOTHER" for _u, p in calls if "channelId" in p)
+
+
+def test_fetch_transcript_uses_caption_track_base_url():
+    caption_base_url = "https://www.youtube.com/api/timedtext?v=vid123&signature=abc&lang=en"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/youtubei/v1/player":
+            return httpx.Response(
+                200,
+                json={
+                    "captions": {
+                        "playerCaptionsTracklistRenderer": {
+                            "captionTracks": [
+                                {"languageCode": "en", "baseUrl": caption_base_url}
+                            ]
+                        }
+                    }
+                },
+            )
+        if request.url.path == "/api/timedtext":
+            return httpx.Response(
+                200,
+                text=(
+                    "<transcript>"
+                    "<text start=\"0\" dur=\"2\">Hello &amp; welcome</text>"
+                    "<text start=\"2\" dur=\"2\">to the show</text>"
+                    "</transcript>"
+                ),
+            )
+        return httpx.Response(404, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    yt = YouTubeClient(
+        api_base_url="https://www.googleapis.com",
+        api_key="test-key",
+        client=client,
+    )
+
+    text, lang, source = yt.fetch_transcript("vid123", languages=["en", "en-US"])
+
+    assert "Hello & welcome" in text
+    assert "to the show" in text
+    assert lang == "en"
+    assert source == "youtube_timedtext"
+
+
+def test_fetch_transcript_raises_when_no_tracks():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/youtubei/v1/player":
+            return httpx.Response(200, json={})
+        return httpx.Response(200, text="")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    yt = YouTubeClient(
+        api_base_url="https://www.googleapis.com",
+        api_key="test-key",
+        client=client,
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="transcript unavailable"):
+        yt.fetch_transcript("vid404", languages=["en"])
