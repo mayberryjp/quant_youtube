@@ -99,6 +99,8 @@ def run_worker(argv: list[str] | None = None) -> None:
     parser.add_argument("--interval-hours", type=float, default=settings.ingest_interval_hours)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--date", type=lambda s: date.fromisoformat(s), default=None)
+    parser.add_argument("--lookback-days", type=int, default=None)
+    parser.add_argument("--max-items", type=int, default=80)
     parser.add_argument("--reprocess", default=None, metavar="VIDEO_ID")
     parser.add_argument("--restart", default=None, metavar="VIDEO_ID")
     parser.add_argument("--reprocess-stale", action="store_true")
@@ -145,7 +147,11 @@ def run_worker(argv: list[str] | None = None) -> None:
         return
 
     if args.once:
-        build_pipeline().run(run_date=args.date)
+        build_pipeline().run(
+            run_date=args.date,
+            lookback_days=args.lookback_days,
+            max_items=args.max_items,
+        )
         return
 
     while True:

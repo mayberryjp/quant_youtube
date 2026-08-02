@@ -55,12 +55,13 @@ class Pipeline:
         self.transcript_languages = transcript_languages or ["en", "en-US"]
         self.channel_targets = channel_targets or []
 
-    def discover(self) -> int:
+    def discover(self, *, lookback_days: int | None = None, max_items: int = 80) -> int:
         return discover_new_items(
             self.youtube,
             self.episodes,
             self.runs,
-            lookback_days=self.lookback_days,
+            lookback_days=lookback_days if lookback_days is not None else self.lookback_days,
+            max_items=max_items,
             channel_targets=self.channel_targets,
         )
 
@@ -153,12 +154,12 @@ class Pipeline:
             c["failures"] += 1
             return c
 
-    def run(self, run_date: date | None = None, *, limit: int = 200) -> Counter:
+    def run(self, run_date: date | None = None, *, limit: int = 200, lookback_days: int | None = None, max_items: int = 80) -> Counter:
         run_date = run_date or datetime.now(timezone.utc).date()
         self.runs.start_run(run_date)
         totals: Counter = Counter()
         try:
-            discovered = self.discover()
+            discovered = self.discover(lookback_days=lookback_days, max_items=max_items)
             if discovered:
                 self.runs.add_counters(run_date, episodes_discovered=discovered)
                 totals["episodes_discovered"] += discovered

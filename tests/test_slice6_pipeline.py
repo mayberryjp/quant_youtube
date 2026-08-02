@@ -202,3 +202,51 @@ class TestPipeline:
         c = p.process_one(e)
         assert c["sentiments_sent"] >= 1
         assert len(sentiment.calls) >= 1
+
+    def test_run_forwards_backfill_overrides_to_discovery(self):
+        captured: dict = {}
+
+        class CapturingYouTube(FakeYouTube):
+            def discover_recent_videos(self, **kwargs):
+                captured.update(kwargs)
+                return []
+
+        p = Pipeline(
+            episode_repo=FakeEpisodeRepo(),
+            distillation_repo=FakeDistRepo(),
+            run_repo=FakeRunRepo(),
+            youtube_client=CapturingYouTube(),
+            llm_client=FakeLLM(),
+            model="m1",
+            distill_prompt_version="v1",
+            lookback_days=14,
+        )
+
+        p.run(run_date=date(2026, 8, 2), lookback_days=3650, max_items=500)
+
+        assert captured["lookback_days"] == 3650
+        assert captured["max_items"] == 500
+
+    def test_run_defaults_to_configured_lookback(self):
+        captured: dict = {}
+
+        class CapturingYouTube(FakeYouTube):
+            def discover_recent_videos(self, **kwargs):
+                captured.update(kwargs)
+                return []
+
+        p = Pipeline(
+            episode_repo=FakeEpisodeRepo(),
+            distillation_repo=FakeDistRepo(),
+            run_repo=FakeRunRepo(),
+            youtube_client=CapturingYouTube(),
+            llm_client=FakeLLM(),
+            model="m1",
+            distill_prompt_version="v1",
+            lookback_days=14,
+        )
+
+        p.run(run_date=date(2026, 8, 2))
+
+        assert captured["lookback_days"] == 14
+        assert captured["max_items"] == 80

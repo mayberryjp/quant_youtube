@@ -8,8 +8,8 @@ from app.services.youtube_client import content_hash
 log = logging.getLogger("quant_allinpodcast.fetcher")
 
 
-def discover_new_items(client, episode_repo, run_repo, *, lookback_days: int = 14, channel_targets: list[dict] | None = None) -> int:
-    items = client.discover_recent_videos(lookback_days=lookback_days, channels=channel_targets)
+def discover_new_items(client, episode_repo, run_repo, *, lookback_days: int = 14, max_items: int = 80, channel_targets: list[dict] | None = None) -> int:
+    items = client.discover_recent_videos(lookback_days=lookback_days, max_items=max_items, channels=channel_targets)
     inserted = episode_repo.upsert_discovered(items)
     return inserted
 
