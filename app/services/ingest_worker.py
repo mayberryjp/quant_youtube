@@ -109,8 +109,6 @@ def run_worker(argv: list[str] | None = None) -> None:
     parser.add_argument("--to-date", type=lambda s: date.fromisoformat(s), default=None)
     args = parser.parse_args(argv)
 
-    p = build_pipeline()
-
     if args.reprocess:
         ep = p.episodes.get_by_identifier(args.reprocess)
         if not ep:
@@ -138,7 +136,7 @@ def run_worker(argv: list[str] | None = None) -> None:
         return
 
     if args.retry_failed:
-        p.retry_failed(
+        build_pipeline().retry_failed(
             from_date=args.from_date,
             to_date=args.to_date,
             max_attempts=args.max_attempts,
@@ -147,21 +145,26 @@ def run_worker(argv: list[str] | None = None) -> None:
         return
 
     if args.once:
-        p.run(run_date=args.date)
+        build_pipeline().run(run_date=args.date)
         return
 
     while True:
-        if args.interval_hours > 0:
-            p.run()
-            sleep_for = max(60, int(args.interval_hours * 3600))
-        else:
-            sleep_for = int(seconds_until_wake(args.wake_time))
-            log.info("sleeping %.1f seconds until %s", sleep_for, args.wake_time)
+        try:
+            pipeline = build_pipeline()
+            if args.interval_hours > 0:
+                pipeline.run()
+                sleep_for = max(60, int(args.interval_hours * 3600))
+            else:
+                sleep_for = int(seconds_until_wake(args.wake_time))
+                log.info("sleeping %.1f seconds until %s", sleep_for, args.wake_time)
+                time.sleep(sleep_for)
+                pipeline.run()
+                sleep_for = args.interval
+            log.info("sleeping %s seconds", sleep_for)
             time.sleep(sleep_for)
-            p.run()
-            sleep_for = args.interval
-        log.info("sleeping %s seconds", sleep_for)
-        time.sleep(sleep_for)
+        except Exception:
+            log.exception("worker loop failed; retrying in 10 seconds")
+            time.sleep(10)
 
 
 if __name__ == "__main__":

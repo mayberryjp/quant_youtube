@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from bottle import Bottle, HTTPResponse, request
@@ -9,6 +10,7 @@ from app.config import settings
 from app.models.responses import IngestRunListResponse, IngestRunResponse
 
 sub = Bottle()
+log = logging.getLogger("quant_allinpodcast.runs")
 
 
 def _json_error(status: int, detail) -> HTTPResponse:
@@ -34,21 +36,28 @@ def _date_param(name: str):
 
 @sub.get("/allin/runs")
 def list_runs():
-    page, page_size = _page_params()
-    repo = deps.run_repo()
-    items, total = repo.list(
-        status=request.params.get("status"),
-        from_date=_date_param("from_date"),
-        to_date=_date_param("to_date"),
-        page=page,
-        page_size=page_size,
-    )
-    return IngestRunListResponse(
-        items=[IngestRunResponse(**item.model_dump()) for item in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-    ).model_dump(mode="json")
+    try:
+        page, page_size = _page_params()
+        repo = deps.run_repo()
+        items, total = repo.list(
+            status=request.params.get("status"),
+            from_date=_date_param("from_date"),
+            to_date=_date_param("to_date"),
+            page=page,
+            page_size=page_size,
+        )
+        payload = IngestRunListResponse(
+            items=[IngestRunResponse.model_validate(item.model_dump(mode="json")) for item in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+        return payload.model_dump(mode="json")
+    except HTTPResponse:
+        raise
+    except Exception as exc:
+        log.exception("failed to list ingest runs")
+        raise _json_error(500, f"failed to list ingest runs: {exc}")
 
 
 @sub.get("/allin/runs/<run_date>")
@@ -58,8 +67,14 @@ def get_run(run_date: str):
     except ValueError:
         raise _json_error(422, "run_date must be YYYY-MM-DD")
 
-    repo = deps.run_repo()
-    run = repo.get_by_run_date(parsed)
-    if run is None:
-        raise _json_error(404, "Run not found")
-    return IngestRunResponse(**run.model_dump()).model_dump(mode="json")
+    try:
+        repo = deps.run_repo()
+        run = repo.get_by_run_date(parsed)
+        if run is None:
+            raise _json_error(404, "Run not found")
+        return IngestRunResponse.model_validate(run.model_dump(mode="json")).model_dump(mode="json")
+    except HTTPResponse:
+        raise
+    except Exception as exc:
+        log.exception("failed to load ingest run %s", run_date)
+        raise _json_error(500, f"failed to load ingest run: {exc}")
