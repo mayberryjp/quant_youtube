@@ -106,6 +106,18 @@ class FakeYouTube:
 
 class FakeLLM:
     def complete_json(self, _system, _user):
+        if "market-sentiment classifier" in (_system or ""):
+            return {
+                "observations": [
+                    {
+                        "subject_type": "ticker",
+                        "subject": "MSFT",
+                        "sentiment_label": "bullish",
+                        "sentiment_score": 0.6,
+                        "confidence": 0.7,
+                    }
+                ]
+            }, {"total_tokens": 8}
         return {"summary": "sum mentions $MSFT", "key_topics": ["ai"], "segments": []}, {"total_tokens": 10}
 
 
@@ -116,6 +128,15 @@ class FakeWatchlist:
     def publish(self, **kwargs):
         self.calls.append(kwargs)
         return {"ok": True}
+
+
+class FakeSentimentApi:
+    def __init__(self):
+        self.calls = []
+
+    def deliver(self, obs, episode, *, model, prompt_version):
+        self.calls.append((obs, episode, model, prompt_version))
+        return True, "sentiment:1"
 
 
 def _pipeline():
@@ -162,3 +183,22 @@ class TestPipeline:
         assert c["watchlist_sent"] == 1
         assert len(watchlist.calls) == 1
         assert watchlist.calls[0]["symbols"] == ["MSFT"]
+
+    def test_sentiment_publish(self):
+        sentiment = FakeSentimentApi()
+        p = Pipeline(
+            episode_repo=FakeEpisodeRepo(),
+            distillation_repo=FakeDistRepo(),
+            run_repo=FakeRunRepo(),
+            youtube_client=FakeYouTube(),
+            llm_client=FakeLLM(),
+            sentiment_client=sentiment,
+            model="m1",
+            distill_prompt_version="v1",
+            sentiment_prompt_version="v1",
+            sentiment_enabled=True,
+        )
+        e = p.episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
+        c = p.process_one(e)
+        assert c["sentiments_sent"] >= 1
+        assert len(sentiment.calls) >= 1

@@ -10,6 +10,7 @@ from app import db, dependencies as deps
 from app.config import settings
 from app.services.llm_client import LLMClient
 from app.services.pipeline import Pipeline
+from app.services.sentiment_pass import SentimentApiClient
 from app.services.watchlist_client import WatchlistClient
 from app.services.youtube_client import YouTubeClient
 
@@ -25,6 +26,15 @@ def build_pipeline(engine=None) -> Pipeline:
             api_key=settings.watchlist_api_key,
             source=settings.watchlist_source,
             timeout=settings.watchlist_timeout,
+        )
+
+    sentiment_client = None
+    if settings.sentiment_enabled and settings.sentiment_api_url:
+        sentiment_client = SentimentApiClient(
+            url=settings.sentiment_api_url,
+            api_key=settings.sentiment_api_key,
+            source=settings.sentiment_source,
+            timeout=settings.sentiment_timeout,
         )
 
     return Pipeline(
@@ -51,13 +61,17 @@ def build_pipeline(engine=None) -> Pipeline:
             num_ctx=settings.llm_num_ctx,
         ),
         watchlist_client=watchlist_client,
+        sentiment_client=sentiment_client,
         model=settings.llm_model,
         distill_prompt_version=settings.distill_prompt_version,
+        sentiment_prompt_version=settings.sentiment_prompt_version,
         lookback_days=settings.lookback_days,
         max_attempts=settings.max_attempts,
         distill_max_chunk_chars=settings.distill_max_chunk_chars,
         watchlist_enabled=settings.watchlist_enabled,
         watchlist_fail_on_error=settings.watchlist_fail_on_error,
+        sentiment_enabled=settings.sentiment_enabled,
+        sentiment_fail_on_error=settings.sentiment_fail_on_error,
         transcript_languages=settings.transcript_language_preference,
         channel_targets=settings.youtube_channel_targets,
     )

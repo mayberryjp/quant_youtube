@@ -12,7 +12,7 @@ class TestScaffold:
     def test_config_loads_defaults(self):
         from app.config import settings
 
-        assert settings.api_port == 8020
+        assert settings.api_port == 8022
         assert settings.youtube_api_base_url == "https://www.googleapis.com"
         assert settings.youtube_channel_handle == "allin"
         assert settings.llm_model == "llama3.1:8b"

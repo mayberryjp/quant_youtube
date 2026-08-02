@@ -44,7 +44,7 @@ transcripts, and expose a small operational/read API.
 ### Non-Goals
 1. Downloading and transcribing raw audio/video with local ASR in the initial
    version.
-2. Producing sentiment or generalized entity extraction beyond ticker symbols.
+2. Generalized entity extraction beyond ticker symbols.
 3. Building a public-facing UI.
 4. Supporting arbitrary YouTube channels in slice 1; initial scope is the
    All-In channel only, with code structured so other channels are possible

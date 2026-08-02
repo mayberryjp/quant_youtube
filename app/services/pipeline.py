@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import date, datetime, timezone
 
 from app.models.domain import Distillation, Episode, EpisodeStatus
-from app.services import distiller
+from app.services import distiller, sentiment_pass
 from app.services.transcript_fetcher import discover_new_items, fetch_transcript
 
 log = logging.getLogger("quant_allinpodcast.pipeline")
@@ -21,13 +21,17 @@ class Pipeline:
         youtube_client,
         llm_client,
         watchlist_client=None,
+        sentiment_client=None,
         model: str,
         distill_prompt_version: str,
+        sentiment_prompt_version: str = "v1",
         lookback_days: int = 14,
         max_attempts: int = 5,
         distill_max_chunk_chars: int = 12000,
         watchlist_enabled: bool = False,
         watchlist_fail_on_error: bool = False,
+        sentiment_enabled: bool = False,
+        sentiment_fail_on_error: bool = False,
         transcript_languages: list[str] | None = None,
         channel_targets: list[dict[str, str]] | None = None,
     ) -> None:
@@ -37,13 +41,17 @@ class Pipeline:
         self.youtube = youtube_client
         self.llm = llm_client
         self.watchlist = watchlist_client
+        self.sentiment = sentiment_client
         self.model = model
         self.distill_pv = distill_prompt_version
+        self.sentiment_pv = sentiment_prompt_version
         self.lookback_days = lookback_days
         self.max_attempts = max_attempts
         self.distill_max_chunk_chars = distill_max_chunk_chars
         self.watchlist_enabled = watchlist_enabled
         self.watchlist_fail_on_error = watchlist_fail_on_error
+        self.sentiment_enabled = sentiment_enabled
+        self.sentiment_fail_on_error = sentiment_fail_on_error
         self.transcript_languages = transcript_languages or ["en", "en-US"]
         self.channel_targets = channel_targets or []
 
@@ -108,6 +116,26 @@ class Pipeline:
                         log.exception("watchlist publish failed for %s", vid)
                         c["watchlist_failures"] += 1
                         if self.watchlist_fail_on_error:
+                            raise
+
+                if self.sentiment_enabled and self.sentiment:
+                    try:
+                        sent_out, _ = sentiment_pass.extract_sentiment(self.llm, out.summary)
+                        for obs in sent_out.observations:
+                            ok, _sid = self.sentiment.deliver(
+                                obs,
+                                episode,
+                                model=self.model,
+                                prompt_version=self.sentiment_pv,
+                            )
+                            if ok:
+                                c["sentiments_sent"] += 1
+                            else:
+                                c["sentiment_failures"] += 1
+                    except Exception:
+                        log.exception("sentiment publish failed for %s", vid)
+                        c["sentiment_failures"] += 1
+                        if self.sentiment_fail_on_error:
                             raise
                 self.episodes.set_status(episode.id, EpisodeStatus.done)
                 self.episodes.touch_stage(episode.id, "distilled")

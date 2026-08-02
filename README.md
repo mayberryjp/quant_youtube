@@ -33,7 +33,7 @@ py -m app.main
 4. Health check:
 
 ```powershell
-curl http://localhost:8020/allin/health
+curl http://localhost:8022/allin/health
 ```
 
 ## API
@@ -70,17 +70,18 @@ Discovery uses the official YouTube Data API v3.
 
 Required configuration:
 
-- `ALLIN_YOUTUBE_API_KEY`
-- `ALLIN_YOUTUBE_CHANNEL_HANDLE` (default `allin`) or `ALLIN_YOUTUBE_CHANNEL_ID`
+- `YOUTUBE_API_KEY`
+- `YOUTUBE_CHANNEL_HANDLE` (default `allin`) or `YOUTUBE_CHANNEL_ID`
 
 Optional multi-channel discovery:
 
-- `ALLIN_YOUTUBE_CHANNELS` as a comma-separated list.
+- `YOUTUBE_CHANNELS` as a comma-separated list.
 - Token formats:
 	- `allin` or `@allin` (handle)
 	- `id:UCxxxxxxxx` (explicit channel ID)
 	- `slug=allin` (custom slug + handle)
 	- `slug=id:UCxxxxxxxx` (custom slug + channel ID)
+
 
 ## Watchlist API Integration
 
@@ -94,7 +95,20 @@ To publish extracted symbols to a watchlist API endpoint (quant_cnbc-style), con
 - `WATCHLIST_SOURCE=quant_allinpodcast` (optional source label)
 - `WATCHLIST_FAIL_ON_ERROR=false` (set `true` to fail ingest when publish fails)
 
-Backward-compatible aliases are also accepted: `ALLIN_WATCHLIST_*`.
+
+## Sentiment API Integration
+
+To run a separate sentiment pass and deliver quant_sentiment-compatible payloads, configure:
+
+- `SENTIMENT_ENABLED=true`
+- `SENTIMENT_API_URL=https://<host>/sentiment`
+- `SENTIMENT_API_KEY=<optional bearer token>`
+- `SENTIMENT_SOURCE=quant_allinpodcast`
+- `SENTIMENT_PROMPT_VERSION=v1`
+- `SENTIMENT_FAIL_ON_ERROR=false` (set `true` to fail ingest when delivery fails)
+
+
+When enabled, each successfully distilled episode runs a separate structured sentiment pass and sends one `POST /sentiment` per extracted observation.
 
 When enabled, each successfully distilled episode sends one payload containing episode metadata,
 symbols, summary, key topics, model, and prompt version.
