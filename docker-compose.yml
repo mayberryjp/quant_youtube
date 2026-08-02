@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: quant
+      POSTGRES_USER: quant
+      POSTGRES_PASSWORD: quant_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - quant_allinpodcast_pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      - db
+    ports:
+      - "8020:8020"
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - quant_allinpodcast_ollama:/root/.ollama
+
+volumes:
+  quant_allinpodcast_pgdata:
+  quant_allinpodcast_ollama:

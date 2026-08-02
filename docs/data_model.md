@@ -1,0 +1,32 @@
+# Data Model
+
+Schema: allin
+
+## Tables
+
+1. allin.episodes
+- One row per YouTube video discovered for the All-In channel
+- Tracks pipeline status transitions: discovered, fetched, distilled, done, failed
+- Stores raw transcript text and transcript metadata
+
+2. allin.distillations
+- Versioned distillation outputs by episode_id + model + prompt_version
+- Maintains a current version marker via is_current
+- Stores summary, key_topics, segments, and token_usage
+
+3. allin.ingest_runs
+- One row per run_date for worker execution tracking
+- Records counters and run outcome status
+- Carries heartbeat timestamp for readiness checks
+
+## Key Constraints
+
+- episodes.video_id unique
+- distillations unique on (episode_id, model, prompt_version)
+- distillations.episode_id foreign key to episodes.id
+
+## Indexes
+
+- episodes status + published_at
+- episodes published_at
+- optional unique content_hash index where present

@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: quant_allinpodcast
+Version: 0.1.0
+Summary: All-In Podcast transcript ingestion and Ollama distillation service
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: alembic>=1.13
+Requires-Dist: bottle>=0.13.0
+Requires-Dist: httpx>=0.27
+Requires-Dist: psycopg[binary]>=3.1
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: pydantic-settings>=2.3.0
+Requires-Dist: SQLAlchemy>=2.0
+Requires-Dist: waitress>=3.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: respx>=0.21.0; extra == "dev"
+Requires-Dist: webtest>=3.0.0; extra == "dev"
+
+# quant_allinpodcast
