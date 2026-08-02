@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates git vim procps \
+    && apt-get install -y --no-install-recommends ca-certificates git vim procps \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /app

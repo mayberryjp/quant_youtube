@@ -11,6 +11,7 @@ from app.config import settings
 LEGACY_TO_CURRENT = {
     "0002_vendor_run_symbol_counts": "0001_allin_schema",
 }
+MIGRATION_MARKER = "/tmp/allin-migrations.done"
 
 
 def _repair_legacy_revision() -> None:
@@ -54,6 +55,9 @@ def main() -> None:
     if not settings.database_url:
         raise RuntimeError("DATABASE_URL is not configured")
     _run_upgrade()
+    with open(MIGRATION_MARKER, "w", encoding="utf-8") as f:
+        f.write("ok\n")
+    print(f"Migration marker created at {MIGRATION_MARKER}")
 
 
 if __name__ == "__main__":
