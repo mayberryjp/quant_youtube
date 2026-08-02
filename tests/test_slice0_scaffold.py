@@ -13,7 +13,8 @@ class TestScaffold:
         from app.config import settings
 
         assert settings.api_port == 8020
-        assert settings.channel_url == "https://www.youtube.com/@allin"
+        assert settings.youtube_api_base_url == "https://www.googleapis.com"
+        assert settings.youtube_channel_handle == "allin"
         assert settings.llm_model == "llama3.1:8b"
 
     def test_transcript_language_parsing(self):
@@ -21,3 +22,12 @@ class TestScaffold:
 
         cfg = Settings(transcript_languages="en, en-US ,")
         assert cfg.transcript_language_preference == ["en", "en-US"]
+
+    def test_multi_channel_parsing(self):
+        from app.config import Settings
+
+        cfg = Settings(youtube_channels="allin, bnn=id:UC1234567890")
+        assert cfg.youtube_channel_targets == [
+            {"channel_id": "", "channel_handle": "allin", "channel_slug": "allin"},
+            {"channel_id": "UC1234567890", "channel_handle": "", "channel_slug": "bnn"},
+        ]

@@ -12,7 +12,7 @@ Schema: allin
 2. allin.distillations
 - Versioned distillation outputs by episode_id + model + prompt_version
 - Maintains a current version marker via is_current
-- Stores summary, key_topics, segments, and token_usage
+- Stores summary, key_topics, symbols, segments, and token_usage
 
 3. allin.ingest_runs
 - One row per run_date for worker execution tracking

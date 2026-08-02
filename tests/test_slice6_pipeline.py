@@ -106,7 +106,16 @@ class FakeYouTube:
 
 class FakeLLM:
     def complete_json(self, _system, _user):
-        return {"summary": "sum", "key_topics": ["ai"], "segments": []}, {"total_tokens": 10}
+        return {"summary": "sum mentions $MSFT", "key_topics": ["ai"], "segments": []}, {"total_tokens": 10}
+
+
+class FakeWatchlist:
+    def __init__(self):
+        self.calls = []
+
+    def publish(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"ok": True}
 
 
 def _pipeline():
@@ -134,3 +143,22 @@ class TestPipeline:
         e = p.episodes.add("abcdefghijk", status=EpisodeStatus.done, raw_text="raw")
         c = p.reprocess(e, run_date=date(2026, 8, 2))
         assert c["reprocessed"] == 1
+
+    def test_watchlist_publish(self):
+        watchlist = FakeWatchlist()
+        p = Pipeline(
+            episode_repo=FakeEpisodeRepo(),
+            distillation_repo=FakeDistRepo(),
+            run_repo=FakeRunRepo(),
+            youtube_client=FakeYouTube(),
+            llm_client=FakeLLM(),
+            watchlist_client=watchlist,
+            model="m1",
+            distill_prompt_version="v1",
+            watchlist_enabled=True,
+        )
+        e = p.episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
+        c = p.process_one(e)
+        assert c["watchlist_sent"] == 1
+        assert len(watchlist.calls) == 1
+        assert watchlist.calls[0]["symbols"] == ["MSFT"]

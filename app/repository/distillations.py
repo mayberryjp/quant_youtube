@@ -8,7 +8,7 @@ from sqlalchemy.engine import Engine
 from app.models.domain import Distillation
 
 _COLUMNS = (
-    "id, episode_id, model, prompt_version, summary, key_topics, "
+    "id, episode_id, model, prompt_version, summary, key_topics, symbols, "
     "segments, token_usage, is_current, created_at"
 )
 
@@ -24,6 +24,7 @@ def _loads(value, default):
 def _row_to_distillation(row: dict) -> Distillation:
     data = dict(row)
     data["key_topics"] = _loads(data.get("key_topics"), [])
+    data["symbols"] = _loads(data.get("symbols"), [])
     data["segments"] = _loads(data.get("segments"), [])
     data["token_usage"] = _loads(data.get("token_usage"), None)
     return Distillation.model_validate(data)
@@ -43,17 +44,18 @@ class DistillationRepository:
                 text(
                     """
                     INSERT INTO allin.distillations
-                        (episode_id, model, prompt_version, summary, key_topics, segments, token_usage, is_current)
+                        (episode_id, model, prompt_version, summary, key_topics, symbols, segments, token_usage, is_current)
                     VALUES
-                        (:episode_id, :model, :prompt_version, :summary, :key_topics, :segments, :token_usage, true)
+                        (:episode_id, :model, :prompt_version, :summary, :key_topics, :symbols, :segments, :token_usage, true)
                     ON CONFLICT (episode_id, model, prompt_version) DO UPDATE SET
                         summary = excluded.summary,
                         key_topics = excluded.key_topics,
+                        symbols = excluded.symbols,
                         segments = excluded.segments,
                         token_usage = excluded.token_usage,
                         is_current = true,
                         created_at = CURRENT_TIMESTAMP
-                    RETURNING id, episode_id, model, prompt_version, summary, key_topics,
+                    RETURNING id, episode_id, model, prompt_version, summary, key_topics, symbols,
                               segments, token_usage, is_current, created_at
                     """
                 ),
@@ -63,6 +65,7 @@ class DistillationRepository:
                     "prompt_version": d.prompt_version,
                     "summary": d.summary,
                     "key_topics": json.dumps(d.key_topics),
+                    "symbols": json.dumps(d.symbols),
                     "segments": json.dumps(d.segments),
                     "token_usage": json.dumps(d.token_usage) if d.token_usage is not None else None,
                 },

@@ -16,9 +16,12 @@ class FakeLLM:
 
 class TestDistiller:
     def test_single_pass(self):
-        llm = FakeLLM([{"summary": "buy AAPL", "key_topics": ["apple"], "segments": []}])
+        llm = FakeLLM(
+            [{"summary": "buy $AAPL and monitor Berkshire (BRK.B)", "key_topics": ["apple"], "segments": []}]
+        )
         out, usage = distill(llm, "short transcript")
-        assert out.summary == "buy AAPL"
+        assert out.summary == "buy $AAPL and monitor Berkshire (BRK.B)"
+        assert out.symbols == ["AAPL", "BRK.B"]
         assert llm.calls == 1
         assert usage["total_tokens"] == 10
 

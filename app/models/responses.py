@@ -30,6 +30,7 @@ class DistillationResponse(BaseModel):
     prompt_version: str
     summary: str
     key_topics: list[str] = []
+    symbols: list[str] = []
     segments: list[dict[str, Any]] = []
     token_usage: dict[str, Any] | None = None
     is_current: bool = True

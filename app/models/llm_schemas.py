@@ -14,4 +14,5 @@ class DistillOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
     summary: str
     key_topics: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
     segments: list[Segment] = Field(default_factory=list)

@@ -10,6 +10,7 @@ from app import db, dependencies as deps
 from app.config import settings
 from app.services.llm_client import LLMClient
 from app.services.pipeline import Pipeline
+from app.services.watchlist_client import WatchlistClient
 from app.services.youtube_client import YouTubeClient
 
 log = logging.getLogger("quant_allinpodcast.worker")
@@ -17,12 +18,25 @@ log = logging.getLogger("quant_allinpodcast.worker")
 
 def build_pipeline(engine=None) -> Pipeline:
     engine = engine or db.get_engine()
+    watchlist_client = None
+    if settings.watchlist_enabled and settings.watchlist_api_url:
+        watchlist_client = WatchlistClient(
+            api_url=settings.watchlist_api_url,
+            api_key=settings.watchlist_api_key,
+            source=settings.watchlist_source,
+            timeout=settings.watchlist_timeout,
+        )
+
     return Pipeline(
         episode_repo=deps.episode_repo(engine),
         distillation_repo=deps.distillation_repo(engine),
         run_repo=deps.run_repo(engine),
         youtube_client=YouTubeClient(
-            channel_url=settings.channel_url,
+            api_base_url=settings.youtube_api_base_url,
+            api_key=settings.youtube_api_key,
+            channel_id=settings.youtube_channel_id,
+            channel_handle=settings.youtube_channel_handle,
+            channel_slug=settings.channel_slug,
             timeout=settings.llm_timeout,
             retries=settings.http_retries,
             backoff=settings.retry_backoff,
@@ -36,12 +50,16 @@ def build_pipeline(engine=None) -> Pipeline:
             json_mode=settings.llm_json_mode,
             num_ctx=settings.llm_num_ctx,
         ),
+        watchlist_client=watchlist_client,
         model=settings.llm_model,
         distill_prompt_version=settings.distill_prompt_version,
         lookback_days=settings.lookback_days,
         max_attempts=settings.max_attempts,
         distill_max_chunk_chars=settings.distill_max_chunk_chars,
+        watchlist_enabled=settings.watchlist_enabled,
+        watchlist_fail_on_error=settings.watchlist_fail_on_error,
         transcript_languages=settings.transcript_language_preference,
+        channel_targets=settings.youtube_channel_targets,
     )
 
 

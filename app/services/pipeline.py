@@ -20,27 +20,41 @@ class Pipeline:
         run_repo,
         youtube_client,
         llm_client,
+        watchlist_client=None,
         model: str,
         distill_prompt_version: str,
         lookback_days: int = 14,
         max_attempts: int = 5,
         distill_max_chunk_chars: int = 12000,
+        watchlist_enabled: bool = False,
+        watchlist_fail_on_error: bool = False,
         transcript_languages: list[str] | None = None,
+        channel_targets: list[dict[str, str]] | None = None,
     ) -> None:
         self.episodes = episode_repo
         self.distillations = distillation_repo
         self.runs = run_repo
         self.youtube = youtube_client
         self.llm = llm_client
+        self.watchlist = watchlist_client
         self.model = model
         self.distill_pv = distill_prompt_version
         self.lookback_days = lookback_days
         self.max_attempts = max_attempts
         self.distill_max_chunk_chars = distill_max_chunk_chars
+        self.watchlist_enabled = watchlist_enabled
+        self.watchlist_fail_on_error = watchlist_fail_on_error
         self.transcript_languages = transcript_languages or ["en", "en-US"]
+        self.channel_targets = channel_targets or []
 
     def discover(self) -> int:
-        return discover_new_items(self.youtube, self.episodes, self.runs, lookback_days=self.lookback_days)
+        return discover_new_items(
+            self.youtube,
+            self.episodes,
+            self.runs,
+            lookback_days=self.lookback_days,
+            channel_targets=self.channel_targets,
+        )
 
     def process_one(self, episode: Episode) -> Counter:
         c: Counter = Counter()
@@ -74,10 +88,27 @@ class Pipeline:
                         prompt_version=self.distill_pv,
                         summary=out.summary,
                         key_topics=out.key_topics,
+                        symbols=out.symbols,
                         segments=[s.model_dump() for s in out.segments],
                         token_usage=usage or None,
                     )
                 )
+                if self.watchlist_enabled and self.watchlist and out.symbols:
+                    try:
+                        self.watchlist.publish(
+                            episode=episode,
+                            symbols=out.symbols,
+                            summary=out.summary,
+                            key_topics=out.key_topics,
+                            model=self.model,
+                            prompt_version=self.distill_pv,
+                        )
+                        c["watchlist_sent"] += 1
+                    except Exception:
+                        log.exception("watchlist publish failed for %s", vid)
+                        c["watchlist_failures"] += 1
+                        if self.watchlist_fail_on_error:
+                            raise
                 self.episodes.set_status(episode.id, EpisodeStatus.done)
                 self.episodes.touch_stage(episode.id, "distilled")
                 c["distilled"] += 1

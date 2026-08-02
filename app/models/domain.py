@@ -48,6 +48,7 @@ class Distillation(BaseModel):
     prompt_version: str
     summary: str
     key_topics: list[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
     segments: list[dict] = Field(default_factory=list)
     token_usage: dict | None = None
     is_current: bool = True
