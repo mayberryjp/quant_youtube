@@ -16,6 +16,4 @@ RUN python3 -m pip install --upgrade pip \
     && python3 -m pip install -e ".[dev]" \
     && python3 -m pip install supervisor
 
-RUN chmod +x /app/start.sh
-
-CMD ["/app/start.sh"]
+CMD ["supervisord", "-c", "/app/supervisord.conf"]
