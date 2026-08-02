@@ -3,9 +3,12 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from app.config import settings
+
+# Isolate this project's migration bookkeeping from the shared public.alembic_version.
+VERSION_TABLE_SCHEMA = "allin"
 
 config = context.config
 
@@ -19,7 +22,12 @@ target_metadata = None
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        version_table_schema=VERSION_TABLE_SCHEMA,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
@@ -33,7 +41,13 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{VERSION_TABLE_SCHEMA}"'))
+        connection.commit()
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema=VERSION_TABLE_SCHEMA,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
