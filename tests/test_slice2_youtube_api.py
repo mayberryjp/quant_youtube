@@ -151,3 +151,24 @@ def test_fetch_transcript_raises_when_no_tracks():
 
     with pytest.raises(ValueError, match="transcript unavailable"):
         yt.fetch_transcript("vid404", languages=["en"])
+
+
+def test_fetch_transcript_rate_limited_is_transient():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    yt = YouTubeClient(
+        api_base_url="https://www.googleapis.com",
+        api_key="test-key",
+        client=client,
+        retries=1,
+        backoff=0,
+    )
+
+    import pytest
+
+    from app.services.youtube_client import TranscriptRateLimited
+
+    with pytest.raises(TranscriptRateLimited):
+        yt.fetch_transcript("vid429", languages=["en"])

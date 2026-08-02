@@ -50,18 +50,20 @@ curl http://localhost:8022/allin/health
 - POST /runs/trigger
 - GET /jobs/{id}
 
-## Worker
+## Workers
 
-Run once:
+Three independent stages, each its own process:
 
 ```powershell
-py -m app.services.ingest_worker --once
+py -m app.workers.discover --once      # crawl channels -> insert episodes (logs an ingest_runs row)
+py -m app.workers.transcript --once    # download transcripts for discovered episodes
+py -m app.workers.distill --once       # distill fetched transcripts
 ```
 
-Retry failed episodes:
+Retry failed transcript fetches:
 
 ```powershell
-py -m app.services.ingest_worker --retry-failed --max-attempts 5
+py -m app.workers.transcript --retry-failed --max-attempts 5
 ```
 
 ## YouTube API

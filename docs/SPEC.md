@@ -145,12 +145,18 @@ quant_allinpodcast/
 │   │   └── episodes.py
 │   └── services/
 │       ├── youtube_client.py
-│       ├── transcript_fetcher.py
+│       ├── transcripts.py
 │       ├── llm_client.py
 │       ├── distiller.py
-│       ├── pipeline.py
-│       ├── jobs.py
-│       └── ingest_worker.py
+│       ├── discovery.py
+│       ├── distillation.py
+│       ├── factory.py
+│       └── jobs.py
+│   └── workers/
+│       ├── _base.py
+│       ├── discover.py
+│       ├── transcript.py
+│       └── distill.py
 ├── docs/
 │   ├── SPEC.md
 │   ├── data_model.md
@@ -380,11 +386,13 @@ Notes:
 
 ## 10. Worker, Docker Compose, and `supervisord`
 
-The container should run three supervised processes:
+The container should run five supervised processes:
 
 1. `alembic upgrade head`
 2. `python -m app.main`
-3. `python -m app.services.ingest_worker --wake-time %(ENV_ALLIN_INGEST_WAKE_TIME)s`
+3. `python -m app.workers.discover --wake-time %(ENV_INGEST_WAKE_TIME)s`
+4. `python -m app.workers.transcript`
+5. `python -m app.workers.distill`
 
 ### `supervisord.conf` (proposed)
 
@@ -414,8 +422,28 @@ startsecs=5
 priority=20
 environment=PYTHONUNBUFFERED="1"
 
-[program:allin-ingest-worker]
-command=bash -c "sleep 5 && exec python3 -m app.services.ingest_worker --wake-time %(ENV_ALLIN_INGEST_WAKE_TIME)s"
+[program:allin-discover]
+command=bash -c "sleep 5 && exec python3 -m app.workers.discover --wake-time %(ENV_INGEST_WAKE_TIME)s"
+directory=/app
+autostart=true
+autorestart=true
+startretries=999
+startsecs=5
+priority=20
+environment=PYTHONUNBUFFERED="1"
+
+[program:allin-transcript]
+command=bash -c "sleep 5 && exec python3 -m app.workers.transcript"
+directory=/app
+autostart=true
+autorestart=true
+startretries=999
+startsecs=5
+priority=30
+environment=PYTHONUNBUFFERED="1"
+
+[program:allin-distill]
+command=bash -c "sleep 5 && exec python3 -m app.workers.distill"
 directory=/app
 autostart=true
 autorestart=true

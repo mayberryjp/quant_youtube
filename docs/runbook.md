@@ -12,13 +12,15 @@
 
 - py -m app.main
 
-## Start Worker Once
+## Start Workers Once
 
-- py -m app.services.ingest_worker --once
+- py -m app.workers.discover --once
+- py -m app.workers.transcript --once
+- py -m app.workers.distill --once
 
 ## Retry Failed Episodes
 
-- py -m app.services.ingest_worker --retry-failed --max-attempts 5
+- py -m app.workers.transcript --retry-failed --max-attempts 5
 
 ## Trigger Operational Jobs via API
 

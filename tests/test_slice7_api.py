@@ -24,7 +24,7 @@ class FakeEpisodeRepo:
         return _episode(eid)
 
 
-class FakePipeline:
+class FakeService:
     def __init__(self):
         self.episodes = self
 
@@ -36,9 +36,6 @@ class FakePipeline:
 
     def restart(self, _e):
         return Counter({"reprocessed": 1})
-
-    def run(self, run_date=None):
-        return Counter({"distilled": 1})
 
     def retry_failed(self, **_kwargs):
         return Counter({"retried": 1})
@@ -109,7 +106,7 @@ class TestReadApi:
         assert resp.json["items"][0]["video_id"] == "abcdefghijk"
 
     def test_reprocess_endpoint(self, app_client, monkeypatch):
-        monkeypatch.setattr("app.routes.episodes.build_pipeline", lambda *a, **k: FakePipeline())
+        monkeypatch.setattr("app.routes.episodes.build_distill_service", lambda *a, **k: FakeService())
         resp = app_client.post_json("/episodes/abcdefghijk/reprocess", {})
         assert resp.status_int == 202
         assert resp.json["status"] == "accepted"

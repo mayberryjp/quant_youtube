@@ -9,7 +9,7 @@ from app import dependencies as deps
 from app.config import settings
 from app.models.requests import ReprocessRequest, RetryFailedRequest, RunTriggerRequest
 from app.models.responses import DistillationResponse, EpisodeDetailResponse, EpisodeResponse
-from app.services.ingest_worker import build_pipeline
+from app.services.factory import build_distill_service, build_transcript_service, run_all_once
 from app.services.jobs import registry
 
 sub = Bottle()
@@ -69,12 +69,12 @@ def get_episode(episode_id: int):
 
 @sub.post("/episodes/<video_id>/reprocess")
 def reprocess_one(video_id: str):
-    pipeline = build_pipeline()
-    e = pipeline.episodes.get_by_identifier(video_id)
+    service = build_distill_service()
+    e = service.episodes.get_by_identifier(video_id)
     if e is None:
         raise _json_error(404, "Episode not found")
 
-    job = registry.submit("reprocess", lambda: pipeline.reprocess(e), key=f"reprocess:{video_id}")
+    job = registry.submit("reprocess", lambda: service.reprocess(e), key=f"reprocess:{video_id}")
     response.status = 202
     return {
         "status": "accepted",
@@ -86,12 +86,12 @@ def reprocess_one(video_id: str):
 
 @sub.post("/episodes/<video_id>/restart")
 def restart_one(video_id: str):
-    pipeline = build_pipeline()
-    e = pipeline.episodes.get_by_identifier(video_id)
+    service = build_transcript_service()
+    e = service.episodes.get_by_identifier(video_id)
     if e is None:
         raise _json_error(404, "Episode not found")
 
-    job = registry.submit("restart", lambda: pipeline.restart(e), key=f"restart:{video_id}")
+    job = registry.submit("restart", lambda: service.restart(e), key=f"restart:{video_id}")
     response.status = 202
     return {
         "status": "accepted",
@@ -116,8 +116,8 @@ def reprocess_bulk():
     except ValidationError as e:
         raise _json_error(422, json.loads(e.json()))
 
-    pipeline = build_pipeline()
-    candidates = pipeline.episodes.reprocess_candidates(
+    service = build_distill_service()
+    candidates = service.reprocess_candidates(
         from_date=body.from_date,
         to_date=body.to_date,
         only_stale=body.only_stale,
@@ -127,7 +127,7 @@ def reprocess_bulk():
 
     def _job():
         for e in candidates:
-            pipeline.reprocess(e)
+            service.reprocess(e)
         return {"reprocessed": len(candidates)}
 
     job = registry.submit("reprocess-bulk", _job)
@@ -149,7 +149,7 @@ def trigger_run():
         raise _json_error(422, json.loads(e.json()))
 
     def _job():
-        return build_pipeline().run(run_date=body.run_date)
+        return run_all_once(run_date=body.run_date)
 
     job = registry.submit("run-trigger", _job)
     response.status = 202
@@ -171,7 +171,7 @@ def retry_failed():
         }
         if body.delete_after_attempts is not None:
             kwargs["delete_after_attempts"] = body.delete_after_attempts
-        return build_pipeline().retry_failed(**kwargs)
+        return build_transcript_service().retry_failed(**kwargs)
 
     job = registry.submit("retry-failed", _job)
     response.status = 202

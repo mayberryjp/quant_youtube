@@ -165,19 +165,28 @@ class EpisodeRepository:
         with self.engine.begin() as conn:
             return (conn.execute(text("DELETE FROM allin.episodes WHERE id = :id"), {"id": episode_id}).rowcount or 0) > 0
 
-    def list_actionable(
-        self,
-        *,
-        limit: int = 100,
-        max_attempts: int = 5,
-        include_failed: bool = True,
-    ) -> list[Episode]:
-        failed_clause = " OR (status = 'failed' AND attempts < :max_attempts)" if include_failed else ""
+    def list_needing_transcript(self, *, limit: int = 200, max_attempts: int = 5) -> list[Episode]:
+        """Episodes with no transcript yet: freshly discovered or a retryable failure."""
         sql = text(
             f"""
             SELECT {_COLUMNS}, raw_text FROM allin.episodes
-             WHERE status IN ('discovered','fetched','distilled')
-                {failed_clause}
+             WHERE status = 'discovered'
+                OR (status = 'failed' AND raw_text IS NULL AND attempts < :max_attempts)
+             ORDER BY published_at DESC NULLS LAST, id DESC
+             LIMIT :limit
+            """
+        )
+        with self.engine.connect() as conn:
+            rows = conn.execute(sql, {"max_attempts": max_attempts, "limit": limit}).mappings().all()
+        return [_row_to_episode(r) for r in rows]
+
+    def list_needing_distill(self, *, limit: int = 200, max_attempts: int = 5) -> list[Episode]:
+        """Episodes with a transcript but no current distillation, plus retryable distill failures."""
+        sql = text(
+            f"""
+            SELECT {_COLUMNS}, raw_text FROM allin.episodes
+             WHERE status = 'fetched'
+                OR (status = 'failed' AND raw_text IS NOT NULL AND attempts < :max_attempts)
              ORDER BY published_at DESC NULLS LAST, id DESC
              LIMIT :limit
             """

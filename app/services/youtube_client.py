@@ -13,13 +13,31 @@ import httpx
 log = logging.getLogger("quant_allinpodcast.youtube")
 _RFC3339_Z_SUFFIX = "+00:00"
 
-# Public InnerTube endpoint/key embedded in youtube.com's own web player (not a secret).
+# Public InnerTube endpoint/keys embedded in YouTube's own players (not secrets).
 _INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
 _INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+# ANDROID client returns caption tracks more reliably than WEB, which YouTube often gates.
+_INNERTUBE_CLIENTS = (
+    {
+        "key": "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
+        "context": {"client": {"clientName": "ANDROID", "clientVersion": "19.09.37", "androidSdkVersion": 30, "hl": "en", "gl": "US"}},
+        "user_agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+    },
+    {
+        "key": _INNERTUBE_KEY,
+        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240726.00.00", "hl": "en"}},
+        "user_agent": _BROWSER_USER_AGENT,
+    },
+)
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+class TranscriptRateLimited(Exception):
+    """YouTube throttled the caption request (HTTP 429); the episode stays retryable."""
 
 
 class YouTubeClient:
@@ -132,55 +150,48 @@ class YouTubeClient:
     def fetch_transcript(self, video_id: str, *, languages: list[str] | None = None) -> tuple[str, str | None, str]:
         languages = languages or ["en", "en-US"]
 
-        track = self._select_caption_track(self._list_caption_tracks(video_id), languages)
+        tracks, rate_limited = self._list_caption_tracks(video_id)
+        track = self._select_caption_track(tracks, languages)
         if track and track.get("baseUrl"):
-            body = self._fetch_timedtext_body(track["baseUrl"])
-            text = _parse_srv(body) if body else ""
-            if text:
-                return text, track.get("languageCode"), "youtube_timedtext"
-
-        # Legacy fallback: direct timedtext (srv1 default format).
-        for lang in languages:
-            resp = self.client.get(
-                "https://www.youtube.com/api/timedtext",
-                params={"v": video_id, "lang": lang},
-            )
-            if resp.status_code == 200 and resp.text.strip():
+            resp = self._send_with_backoff(lambda: self.client.get(track["baseUrl"]))
+            if resp.status_code == 429:
+                rate_limited = True
+            elif resp.status_code == 200 and resp.text.strip():
                 text = _parse_srv(resp.text)
                 if text:
-                    return text, lang, "youtube_timedtext"
+                    return text, track.get("languageCode"), "youtube_timedtext"
 
+        if rate_limited:
+            raise TranscriptRateLimited(f"rate-limited fetching captions for {video_id}")
         raise ValueError("transcript unavailable")
 
-    def _list_caption_tracks(self, video_id: str) -> list[dict]:
-        try:
-            resp = self.client.post(
-                _INNERTUBE_PLAYER_URL,
-                params={"key": _INNERTUBE_KEY},
-                json={
-                    "videoId": video_id,
-                    "context": {
-                        "client": {
-                            "clientName": "WEB",
-                            "clientVersion": "2.20240726.00.00",
-                            "hl": "en",
-                        }
-                    },
-                },
-                headers={
-                    "User-Agent": _BROWSER_USER_AGENT,
-                    "Content-Type": "application/json",
-                },
-            )
+    def _list_caption_tracks(self, video_id: str) -> tuple[list[dict], bool]:
+        rate_limited = False
+        for spec in _INNERTUBE_CLIENTS:
+            try:
+                resp = self._send_with_backoff(
+                    lambda s=spec: self.client.post(
+                        _INNERTUBE_PLAYER_URL,
+                        params={"key": s["key"]},
+                        json={"videoId": video_id, "context": s["context"]},
+                        headers={"User-Agent": s["user_agent"], "Content-Type": "application/json"},
+                    )
+                )
+            except Exception:
+                log.warning("caption track listing failed for %s", video_id, exc_info=True)
+                continue
+            if resp.status_code == 429:
+                rate_limited = True
+                continue
             if resp.status_code != 200:
-                return []
+                continue
             renderer = (resp.json().get("captions") or {}).get(
                 "playerCaptionsTracklistRenderer"
             ) or {}
-            return renderer.get("captionTracks") or []
-        except Exception:
-            log.warning("caption track listing failed for %s", video_id, exc_info=True)
-            return []
+            tracks = renderer.get("captionTracks") or []
+            if tracks:
+                return tracks, rate_limited
+        return [], rate_limited
 
     @staticmethod
     def _select_caption_track(tracks: list[dict], languages: list[str]) -> dict | None:
@@ -197,11 +208,25 @@ class YouTubeClient:
                     return track
         return tracks[0]
 
-    def _fetch_timedtext_body(self, base_url: str) -> str:
-        resp = self.client.get(base_url)
-        if resp.status_code == 200 and resp.text.strip():
-            return resp.text
-        return ""
+    def _send_with_backoff(self, send):
+        last = None
+        for attempt in range(1, max(1, self.retries) + 1):
+            resp = send()
+            last = resp
+            if resp.status_code not in _RETRYABLE_STATUS:
+                return resp
+            if attempt >= self.retries:
+                break
+            self._sleep_for_retry(resp, attempt)
+        return last
+
+    def _sleep_for_retry(self, resp, attempt: int) -> None:
+        retry_after = resp.headers.get("Retry-After")
+        try:
+            delay = float(retry_after) if retry_after else self.backoff * (2 ** (attempt - 1))
+        except ValueError:
+            delay = self.backoff * (2 ** (attempt - 1))
+        time.sleep(min(delay, 30.0))
 
     def _resolve_channel_id(self, *, channel_id: str = "", channel_handle: str = "") -> str:
         if channel_id:
