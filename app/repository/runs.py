@@ -6,6 +6,22 @@ from datetime import date, datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from app.models.domain import IngestRun
+
+
+def _loads(value, default):
+    if value is None:
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    return json.loads(value)
+
+
+def _row_to_run(row: dict) -> IngestRun:
+    data = dict(row)
+    data["notes"] = _loads(data.get("notes"), None)
+    return IngestRun.model_validate(data)
+
 
 class RunRepository:
     def __init__(self, engine: Engine) -> None:
@@ -84,6 +100,49 @@ class RunRepository:
         with self.engine.connect() as conn:
             row = conn.execute(sql).mappings().first()
         return dict(row) if row else None
+
+    def get_by_run_date(self, run_date: date) -> IngestRun | None:
+        sql = text("SELECT * FROM allin.ingest_runs WHERE run_date = :run_date")
+        with self.engine.connect() as conn:
+            row = conn.execute(sql, {"run_date": run_date}).mappings().first()
+        return _row_to_run(row) if row else None
+
+    def list(
+        self,
+        *,
+        status: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> tuple[list[IngestRun], int]:
+        clauses = []
+        params: dict = {}
+        if status:
+            clauses.append("status = :status")
+            params["status"] = status
+        if from_date:
+            clauses.append("run_date >= :from_date")
+            params["from_date"] = from_date
+        if to_date:
+            clauses.append("run_date <= :to_date")
+            params["to_date"] = to_date
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        offset = max(page - 1, 0) * page_size
+        sql = text(
+            f"""
+            SELECT * FROM allin.ingest_runs
+             {where}
+             ORDER BY run_date DESC
+             LIMIT :limit OFFSET :offset
+            """
+        )
+        count_sql = text(f"SELECT count(*) FROM allin.ingest_runs{where}")
+        params_with_page = {**params, "limit": page_size, "offset": offset}
+        with self.engine.connect() as conn:
+            rows = conn.execute(sql, params_with_page).mappings().all()
+            total = conn.execute(count_sql, params).scalar_one()
+        return [_row_to_run(r) for r in rows], int(total)
 
     def stats(self, episodes_total: int = 0) -> dict:
         last = self.last_run() or {}

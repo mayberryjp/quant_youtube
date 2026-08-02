@@ -30,6 +30,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from app.routes import runs
+
+    app.merge(runs.sub)
+except ImportError:
+    pass
+
 
 if __name__ == "__main__":
     from waitress import serve

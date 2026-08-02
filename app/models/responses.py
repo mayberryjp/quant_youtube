@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -52,3 +52,24 @@ class StatsResponse(BaseModel):
     last_run_date: str | None = None
     last_run_status: str | None = None
     last_heartbeat: str | None = None
+
+
+class IngestRunResponse(BaseModel):
+    run_date: date
+    status: str
+    episodes_discovered: int = 0
+    transcripts_fetched: int = 0
+    distilled: int = 0
+    reprocessed: int = 0
+    failures: int = 0
+    last_heartbeat: datetime | None = None
+    notes: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class IngestRunListResponse(BaseModel):
+    items: list[IngestRunResponse]
+    total: int
+    page: int
+    page_size: int

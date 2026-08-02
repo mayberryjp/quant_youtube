@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import date, datetime, timezone
 
-from app.models.domain import Distillation, Episode
+from app.models.domain import Distillation, Episode, IngestRun
 
 
 def _episode(eid=1):
@@ -46,6 +47,31 @@ class FakePipeline:
         return [_episode(1)]
 
 
+class RunRepo:
+    def list(self, **_kwargs):
+        return [self._run()], 1
+
+    def get_by_run_date(self, run_date):
+        if str(run_date) != "2026-08-02":
+            return None
+        return self._run()
+
+    def _run(self):
+        return IngestRun(
+            run_date=date(2026, 8, 2),
+            status="success",
+            episodes_discovered=3,
+            transcripts_fetched=3,
+            distilled=3,
+            reprocessed=0,
+            failures=0,
+            last_heartbeat=datetime(2026, 8, 2, 17, 0, tzinfo=timezone.utc),
+            notes={"totals": {"distilled": 3}},
+            created_at=datetime(2026, 8, 2, 17, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 2, 17, 5, tzinfo=timezone.utc),
+        )
+
+
 class DRepo:
     def get_current_map(self, ids):
         return {
@@ -87,3 +113,16 @@ class TestReadApi:
         resp = app_client.post_json("/episodes/abcdefghijk/reprocess", {})
         assert resp.status_int == 202
         assert resp.json["status"] == "accepted"
+
+    def test_list_runs(self, app_client, monkeypatch):
+        monkeypatch.setattr("app.dependencies.run_repo", lambda *a, **k: RunRepo())
+        resp = app_client.get("/allin/runs")
+        assert resp.status_int == 200
+        assert resp.json["total"] == 1
+        assert resp.json["items"][0]["run_date"] == "2026-08-02"
+
+    def test_get_run(self, app_client, monkeypatch):
+        monkeypatch.setattr("app.dependencies.run_repo", lambda *a, **k: RunRepo())
+        resp = app_client.get("/allin/runs/2026-08-02")
+        assert resp.status_int == 200
+        assert resp.json["status"] == "success"

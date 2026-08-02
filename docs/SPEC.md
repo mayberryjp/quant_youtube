@@ -369,6 +369,8 @@ Small operational and read API, mirroring `quant_cnbc` patterns.
 | POST | `/runs/trigger` | manually trigger a run |
 | GET | `/jobs/{id}` | in-process background job status |
 
+See [docs/ingestion_runs_api.md](docs/ingestion_runs_api.md) for the front-end contract for ingestion run history and trigger polling.
+
 Notes:
 
 1. Long-running operations execute in background daemon threads via an
