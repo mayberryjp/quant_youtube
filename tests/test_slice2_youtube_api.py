@@ -1,80 +1,71 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
+import pytest
 
-from app.services.youtube_client import YouTubeClient
+from app.services.youtube_client import TranscriptRateLimited, YouTubeClient
 
 
-def test_discovery_uses_official_youtube_api():
-    calls: list[tuple[str, dict]] = []
+def _recent_iso() -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+
+
+def _client(handler, **kwargs) -> YouTubeClient:
+    http = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    kwargs.setdefault("api_key", "test-key")
+    return YouTubeClient(client=http, **kwargs)
+
+
+def test_discovery_uses_channel_latest():
+    recent = _recent_iso()
+    calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append((str(request.url), dict(request.url.params)))
-        if request.url.path.endswith("/youtube/v3/channels"):
-            return httpx.Response(200, json={"items": [{"id": "UC123"}]})
-        if request.url.path.endswith("/youtube/v3/search"):
+        calls.append(dict(request.url.params))
+        if request.url.path.endswith("/youtube/channel/latest"):
             return httpx.Response(
                 200,
                 json={
-                    "items": [
+                    "results": [
                         {
-                            "id": {"videoId": "abcdefghijk"},
-                            "snippet": {
-                                "title": "Episode 1",
-                                "publishedAt": "2026-08-01T10:00:00Z",
-                                "description": "desc",
-                                "thumbnails": {"high": {"url": "https://img/1.jpg"}},
-                            },
+                            "videoId": "abcdefghijk",
+                            "title": "Episode 1",
+                            "published": recent,
+                            "link": "https://www.youtube.com/watch?v=abcdefghijk",
+                            "description": "desc",
+                            "thumbnail": {"url": "https://img/1.jpg"},
                         }
                     ]
                 },
             )
         return httpx.Response(404, json={})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
-    yt = YouTubeClient(
-        api_base_url="https://www.googleapis.com",
-        api_key="test-key",
-        channel_handle="allin",
-        client=client,
-    )
-
+    yt = _client(handler, channel_handle="allin")
     items = yt.discover_recent_videos(lookback_days=14, max_items=10)
 
     assert len(items) == 1
     assert items[0]["video_id"] == "abcdefghijk"
-    assert any("/youtube/v3/channels" in url for url, _ in calls)
-    assert any("/youtube/v3/search" in url for url, _ in calls)
+    assert items[0]["channel_slug"] == "allin"
+    assert items[0]["source_url"] == "https://www.youtube.com/watch?v=abcdefghijk"
+    assert any(p.get("channel") == "@allin" for p in calls)
 
 
 def test_discovery_supports_multiple_channels():
-    calls: list[tuple[str, dict]] = []
+    recent = _recent_iso()
+    calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         params = dict(request.url.params)
-        calls.append((str(request.url), params))
-        if request.url.path.endswith("/youtube/v3/channels"):
-            if params.get("forHandle") == "allin":
-                return httpx.Response(200, json={"items": [{"id": "UCALLIN"}]})
-            if params.get("forHandle") == "othercast":
-                return httpx.Response(200, json={"items": [{"id": "UCOTHER"}]})
-            return httpx.Response(200, json={"items": []})
-        if request.url.path.endswith("/youtube/v3/search"):
-            channel_id = params.get("channelId")
-            if channel_id == "UCALLIN":
-                return httpx.Response(200, json={"items": [{"id": {"videoId": "abcdefghijk"}, "snippet": {"title": "A", "publishedAt": "2026-08-01T10:00:00Z", "description": "d", "thumbnails": {"high": {"url": "https://img/a.jpg"}}}}]})
-            if channel_id == "UCOTHER":
-                return httpx.Response(200, json={"items": [{"id": {"videoId": "zzzzzzzzzzz"}, "snippet": {"title": "B", "publishedAt": "2026-08-01T11:00:00Z", "description": "d2", "thumbnails": {"high": {"url": "https://img/b.jpg"}}}}]})
-            return httpx.Response(200, json={"items": []})
+        calls.append(params)
+        if request.url.path.endswith("/youtube/channel/latest"):
+            vid = {"@allin": "abcdefghijk", "@othercast": "zzzzzzzzzzz"}.get(params.get("channel"))
+            results = [{"videoId": vid, "title": vid, "published": recent, "thumbnail": {"url": "x"}}] if vid else []
+            return httpx.Response(200, json={"results": results})
         return httpx.Response(404, json={})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
-    yt = YouTubeClient(
-        api_base_url="https://www.googleapis.com",
-        api_key="test-key",
-        client=client,
-    )
-
+    yt = _client(handler)
     items = yt.discover_recent_videos(
         lookback_days=14,
         max_items=10,
@@ -84,94 +75,107 @@ def test_discovery_supports_multiple_channels():
         ],
     )
 
-    assert len(items) == 2
     assert {item["channel_slug"] for item in items} == {"allin", "other"}
-    assert any(p.get("channelId") == "UCALLIN" for _u, p in calls if "channelId" in p)
-    assert any(p.get("channelId") == "UCOTHER" for _u, p in calls if "channelId" in p)
+    assert {p.get("channel") for p in calls if "channel" in p} == {"@allin", "@othercast"}
 
 
-def test_fetch_transcript_uses_caption_track_base_url():
-    caption_base_url = "https://www.youtube.com/api/timedtext?v=vid123&signature=abc&lang=en"
+def test_discovery_uses_channel_id_when_present():
+    calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/youtubei/v1/player":
+        calls.append(dict(request.url.params))
+        return httpx.Response(200, json={"results": []})
+
+    yt = _client(handler)
+    yt.discover_recent_videos(
+        channels=[{"channel_id": "UC123", "channel_handle": "ignored", "channel_slug": "x"}],
+    )
+
+    assert any(p.get("channel") == "UC123" for p in calls)
+
+
+def test_discovery_filters_outside_lookback():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"results": [{"videoId": "abcdefghijk", "title": "Old", "published": "2000-01-01T00:00:00Z", "thumbnail": {}}]},
+        )
+
+    yt = _client(handler)
+    assert yt.discover_recent_videos(lookback_days=14, max_items=10) == []
+
+
+def test_discovery_requires_api_key():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": []})
+
+    yt = _client(handler, api_key="")
+    with pytest.raises(ValueError, match="TRANSCRIPTAPI_KEY"):
+        yt.discover_recent_videos()
+
+
+def test_fetch_transcript_returns_flattened_text():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/youtube/transcript"):
             return httpx.Response(
                 200,
                 json={
-                    "captions": {
-                        "playerCaptionsTracklistRenderer": {
-                            "captionTracks": [
-                                {"languageCode": "en", "baseUrl": caption_base_url}
-                            ]
-                        }
-                    }
+                    "video_id": "vid123",
+                    "language": "en",
+                    "transcript": [
+                        {"text": "Hello & welcome"},
+                        {"text": "to the show"},
+                        {"text": "to the show"},
+                    ],
                 },
-            )
-        if request.url.path == "/api/timedtext":
-            return httpx.Response(
-                200,
-                text=(
-                    "<transcript>"
-                    "<text start=\"0\" dur=\"2\">Hello &amp; welcome</text>"
-                    "<text start=\"2\" dur=\"2\">to the show</text>"
-                    "</transcript>"
-                ),
             )
         return httpx.Response(404, json={})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
-    yt = YouTubeClient(
-        api_base_url="https://www.googleapis.com",
-        api_key="test-key",
-        innertube_web_key="test-key",
-        client=client,
-    )
-
+    yt = _client(handler)
     text, lang, source = yt.fetch_transcript("vid123", languages=["en", "en-US"])
 
     assert "Hello & welcome" in text
     assert "to the show" in text
+    assert text.count("to the show") == 1  # consecutive rolling-caption dupes collapsed
     assert lang == "en"
-    assert source == "youtube_timedtext"
+    assert source == "transcriptapi"
 
 
-def test_fetch_transcript_raises_when_no_tracks():
+def test_fetch_transcript_maps_languages_to_transcriptapi_codes():
+    seen: dict = {}
+
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/youtubei/v1/player":
-            return httpx.Response(200, json={})
-        return httpx.Response(200, text="")
+        seen.update(dict(request.url.params))
+        return httpx.Response(200, json={"language": "en", "transcript": [{"text": "hi"}]})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
-    yt = YouTubeClient(
-        api_base_url="https://www.googleapis.com",
-        api_key="test-key",
-        innertube_web_key="test-key",
-        client=client,
-    )
+    yt = _client(handler)
+    yt.fetch_transcript("vid123", languages=["en-orig", "en", "en-US", "asr"])
 
-    import pytest
+    assert seen["language"] == "en,asr"  # region variants collapse + dedupe, asr preserved
 
+
+def test_fetch_transcript_404_is_unavailable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "no transcript", "code": "no_transcript"})
+
+    yt = _client(handler)
     with pytest.raises(ValueError, match="transcript unavailable"):
         yt.fetch_transcript("vid404", languages=["en"])
 
 
 def test_fetch_transcript_rate_limited_is_transient():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, json={})
+        return httpx.Response(429, json={"detail": "slow down"})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
-    yt = YouTubeClient(
-        api_base_url="https://www.googleapis.com",
-        api_key="test-key",
-        innertube_web_key="test-key",
-        client=client,
-        retries=1,
-        backoff=0,
-    )
-
-    import pytest
-
-    from app.services.youtube_client import TranscriptRateLimited
-
+    yt = _client(handler, retries=1, backoff=0)
     with pytest.raises(TranscriptRateLimited):
         yt.fetch_transcript("vid429", languages=["en"])
+
+
+def test_fetch_transcript_payment_required_is_transient():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(402, json={"detail": {"message": "out of credits", "reason": "insufficient_credits"}})
+
+    yt = _client(handler, retries=1, backoff=0)
+    with pytest.raises(TranscriptRateLimited):
+        yt.fetch_transcript("vid402", languages=["en"])

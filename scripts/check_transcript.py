@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Fetch a YouTube transcript using the app's own env-driven config, with verbose logs.
+"""Fetch a YouTube transcript through the app's transcriptapi.com client, with verbose logs.
 
-Committable (not a pytest). Runs the exact YouTubeClient the workers use, so it doubles
-as a diagnostic for the "transcript unavailable" case: it logs the effective config,
-how many caption clients/tracks were found, the available languages, and a preview of
-the text.
+Committable (not a pytest). Uses the exact YouTubeClient the workers use, so it doubles
+as a diagnostic for the "transcript unavailable" case: it logs the effective config, the
+languages transcriptapi.com reports for the video (free /youtube/info lookup), and a
+preview of the fetched text.
 
 Run inside the container (env comes from .env):
     docker compose exec app python scripts/check_transcript.py
     docker compose exec app python scripts/check_transcript.py VIDEO_ID_OR_URL -v
 
-Exit codes: 0 ok | 2 no keys | 3 rate limited | 4 unavailable | 5 unexpected error
+Exit codes: 0 ok | 2 no api key | 3 transient (rate limit / credits / 5xx) | 4 unavailable | 5 unexpected error
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import re
 import sys
 import time
 from pathlib import Path
@@ -29,20 +28,13 @@ from app.config import settings
 from app.services.factory import _youtube
 from app.services.youtube_client import TranscriptRateLimited
 
-log = logging.getLogger("check_transcript")
-
 
 def _mask(key: str) -> str:
     return f"set (…{key[-4:]})" if key else "NOT SET"
 
 
-def _extract_id(value: str) -> str:
-    match = re.search(r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})", value)
-    return match.group(1) if match else value
-
-
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fetch a YouTube transcript via the app's env-driven client.")
+    parser = argparse.ArgumentParser(description="Fetch a YouTube transcript via the app's transcriptapi.com client.")
     parser.add_argument(
         "video",
         nargs="?",
@@ -58,41 +50,40 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+    log = logging.getLogger("check_transcript")
 
-    video_id = _extract_id(args.video)
-    log.info("video id              : %s", video_id)
-    log.info("innertube web key     : %s", _mask(settings.innertube_web_key))
-    log.info("innertube android key : %s", _mask(settings.innertube_android_key))
+    log.info("video                 : %s", args.video)
+    log.info("transcriptapi key     : %s", _mask(settings.transcriptapi_api_key))
+    log.info("transcriptapi base    : %s", settings.transcriptapi_base_url)
     log.info("language preference   : %s", settings.transcript_language_preference)
-    log.info("api base / timeout    : %s / %ss  retries=%s", settings.youtube_api_base_url, settings.llm_timeout, settings.http_retries)
+    log.info("timeout / retries     : %ss / %s", settings.llm_timeout, settings.http_retries)
 
-    if not (settings.innertube_web_key or settings.innertube_android_key):
+    if not settings.transcriptapi_api_key:
         log.error(
-            "No InnerTube keys configured -> zero caption clients -> fetch cannot work. "
-            "Set INNERTUBE_WEB_KEY / INNERTUBE_ANDROID_KEY in your .env and retry."
+            "No TRANSCRIPTAPI_KEY configured -> transcriptapi.com calls cannot authenticate. "
+            "Set TRANSCRIPTAPI_KEY in your .env and retry (key: https://transcriptapi.com/dashboard/api-keys)."
         )
         return 2
 
     client = _youtube()
-    log.info("caption clients built  : %d", len(client._innertube_clients))
 
-    # Diagnostic pass: list tracks before the real fetch so empty results are obvious in the logs.
-    t0 = time.perf_counter()
-    tracks, rate_limited = client._list_caption_tracks(video_id)
-    log.info("caption tracks returned: %d (rate_limited=%s) in %.2fs", len(tracks), rate_limited, time.perf_counter() - t0)
-    if tracks:
-        log.info("available languages    : %s", [t.get("languageCode") for t in tracks])
-    else:
-        log.warning(
-            "InnerTube returned NO caption tracks. Most likely datacenter-IP gating or captions "
-            "disabled for this video (yt-dlp from a residential IP may still succeed)."
-        )
+    # Free /youtube/info pass: surface the languages the video offers before spending a credit.
+    try:
+        langs = client.available_languages(args.video)
+        if langs:
+            log.info("available languages    : %s", [f"{l.get('code')} ({l.get('name')})" for l in langs])
+        else:
+            log.warning("no available languages reported (video may not exist or have no captions)")
+    except TranscriptRateLimited as exc:
+        log.warning("info lookup throttled  : %s", exc)
+    except Exception:
+        log.warning("info lookup failed", exc_info=True)
 
     try:
         t0 = time.perf_counter()
-        text, lang, source = client.fetch_transcript(video_id, languages=settings.transcript_language_preference)
+        text, lang, source = client.fetch_transcript(args.video, languages=settings.transcript_language_preference)
     except TranscriptRateLimited as exc:
-        log.error("rate limited (HTTP 429): %s", exc)
+        log.error("transient failure (rate limit / credits / 5xx): %s", exc)
         return 3
     except ValueError as exc:
         log.error("transcript unavailable: %s", exc)

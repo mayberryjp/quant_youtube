@@ -68,12 +68,19 @@ py -m app.workers.transcript --retry-failed --max-attempts 5
 
 ## YouTube API
 
-Discovery uses the official YouTube Data API v3.
+Discovery and transcript fetching both run through [transcriptapi.com](https://transcriptapi.com).
+Discovery uses the free `GET /youtube/channel/latest` (RSS) endpoint; transcripts use
+`GET /youtube/transcript` (1 credit, charged only on success).
 
 Required configuration:
 
-- `YOUTUBE_API_KEY`
+- `TRANSCRIPTAPI_KEY` (get one at https://transcriptapi.com/dashboard/api-keys)
 - `YOUTUBE_CHANNEL_HANDLE` (default `allin`) or `YOUTUBE_CHANNEL_ID`
+
+Optional:
+
+- `TRANSCRIPTAPI_BASE_URL` (default `https://transcriptapi.com/api/v2`)
+- `TRANSCRIPT_LANGUAGES` priority list of transcriptapi codes (default `en,asr`; region is ignored, `asr` = auto-generated)
 
 Optional multi-channel discovery:
 

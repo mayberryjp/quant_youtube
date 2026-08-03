@@ -60,14 +60,6 @@ class Settings(BaseSettings):
         default="allin",
         validation_alias=AliasChoices("CHANNEL_SLUG"),
     )
-    youtube_api_base_url: str = Field(
-        default="https://www.googleapis.com",
-        validation_alias=AliasChoices("YOUTUBE_API_BASE_URL"),
-    )
-    youtube_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("YOUTUBE_API_KEY"),
-    )
     youtube_channel_id: str = Field(
         default="",
         validation_alias=AliasChoices("YOUTUBE_CHANNEL_ID"),
@@ -81,17 +73,17 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("YOUTUBE_CHANNELS"),
     )
     transcript_languages: str = Field(
-        default="en-orig,en,en-US,en-GB",
+        default="en,asr",
         validation_alias=AliasChoices("TRANSCRIPT_LANGUAGES"),
     )
-    # YouTube's own public web/mobile player keys; override via env if desired.
-    innertube_web_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("INNERTUBE_WEB_KEY"),
+    # transcriptapi.com backs both discovery (free /channel/latest) and transcript fetching.
+    transcriptapi_base_url: str = Field(
+        default="https://transcriptapi.com/api/v2",
+        validation_alias=AliasChoices("TRANSCRIPTAPI_BASE_URL"),
     )
-    innertube_android_key: str = Field(
+    transcriptapi_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices("INNERTUBE_ANDROID_KEY"),
+        validation_alias=AliasChoices("TRANSCRIPTAPI_KEY", "TRANSCRIPT_API_KEY"),
     )
 
     llm_base_url: str = Field(

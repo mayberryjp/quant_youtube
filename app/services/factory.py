@@ -15,16 +15,14 @@ from app.services.youtube_client import YouTubeClient
 
 def _youtube() -> YouTubeClient:
     return YouTubeClient(
-        api_base_url=settings.youtube_api_base_url,
-        api_key=settings.youtube_api_key,
+        api_base_url=settings.transcriptapi_base_url,
+        api_key=settings.transcriptapi_api_key,
         channel_id=settings.youtube_channel_id,
         channel_handle=settings.youtube_channel_handle,
         channel_slug=settings.channel_slug,
         timeout=settings.llm_timeout,
         retries=settings.http_retries,
         backoff=settings.retry_backoff,
-        innertube_web_key=settings.innertube_web_key,
-        innertube_android_key=settings.innertube_android_key,
     )
 
 

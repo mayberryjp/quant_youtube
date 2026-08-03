@@ -13,7 +13,7 @@ class TestScaffold:
         from app.config import settings
 
         assert settings.api_port == 8022
-        assert settings.youtube_api_base_url == "https://www.googleapis.com"
+        assert settings.transcriptapi_base_url == "https://transcriptapi.com/api/v2"
         assert settings.youtube_channel_handle == "allin"
         assert settings.llm_model == "llama3.1:8b"
 

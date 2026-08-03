@@ -1,51 +1,56 @@
+"""YouTube integration backed by transcriptapi.com.
+
+Both stages of the pipeline go through this single client:
+  * discovery  -> GET /youtube/channel/latest  (free RSS feed, exact publish times)
+  * transcripts -> GET /youtube/transcript      (1 credit, charged only on 200)
+
+The public surface (``discover_recent_videos`` / ``fetch_transcript`` /
+``TranscriptRateLimited`` / ``content_hash``) is unchanged, so the discovery and
+transcript services do not need to know which provider is underneath.
+"""
+
 from __future__ import annotations
 
 import hashlib
-import html
 import logging
 import re
-import time
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from time import sleep
 
 import httpx
 
 log = logging.getLogger("quant_allinpodcast.youtube")
-_RFC3339_Z_SUFFIX = "+00:00"
 
-# InnerTube player endpoint + client contexts. API keys are injected from config (env), never hardcoded here.
-_INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
-_BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
-_ANDROID_USER_AGENT = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
-_ANDROID_CONTEXT = {"client": {"clientName": "ANDROID", "clientVersion": "19.09.37", "androidSdkVersion": 30, "hl": "en", "gl": "US"}}
-_WEB_CONTEXT = {"client": {"clientName": "WEB", "clientVersion": "2.20240726.00.00", "hl": "en"}}
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_RFC3339_Z_SUFFIX = "+00:00"
+_DEFAULT_BASE_URL = "https://transcriptapi.com/api/v2"
+# Statuses worth an in-client retry (transient network / throttling / server blips).
+_RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
+# Statuses that mean "try again later" rather than a permanent failure for this video.
+# 402 (out of credits) is included so episodes stay retryable once credits are topped up.
+_TRANSIENT_STATUS = {402, 408, 429, 500, 502, 503, 504}
 
 
 class TranscriptRateLimited(Exception):
-    """YouTube throttled the caption request (HTTP 429); the episode stays retryable."""
+    """transcriptapi.com signalled a transient condition (429/402/5xx); keep the episode retryable."""
 
 
 class YouTubeClient:
+    """Thin HTTP client over transcriptapi.com for discovery + transcript extraction."""
+
     def __init__(
         self,
         *,
-        api_base_url: str,
-        api_key: str,
+        api_base_url: str = _DEFAULT_BASE_URL,
+        api_key: str = "",
         channel_id: str = "",
         channel_handle: str = "allin",
         channel_slug: str = "allin",
         timeout: int = 30,
         retries: int = 3,
         backoff: float = 1.0,
-        innertube_web_key: str = "",
-        innertube_android_key: str = "",
         client: httpx.Client | None = None,
     ) -> None:
-        self.api_base_url = api_base_url.rstrip("/")
+        self.api_base_url = (api_base_url or _DEFAULT_BASE_URL).rstrip("/")
         self.api_key = api_key
         self.channel_id = channel_id
         self.channel_handle = channel_handle.lstrip("@")
@@ -54,19 +59,11 @@ class YouTubeClient:
         self.retries = retries
         self.backoff = backoff
         self.client = client or httpx.Client(timeout=timeout, follow_redirects=True)
-        # Caption clients built only for keys that are configured; empties are skipped.
-        self._innertube_clients: list[dict] = []
-        if innertube_android_key:
-            self._innertube_clients.append(
-                {"key": innertube_android_key, "context": _ANDROID_CONTEXT, "user_agent": _ANDROID_USER_AGENT}
-            )
-        if innertube_web_key:
-            self._innertube_clients.append(
-                {"key": innertube_web_key, "context": _WEB_CONTEXT, "user_agent": _BROWSER_USER_AGENT}
-            )
 
     def close(self) -> None:
         self.client.close()
+
+    # -- discovery ---------------------------------------------------------
 
     def discover_recent_videos(
         self,
@@ -76,204 +73,169 @@ class YouTubeClient:
         channels: list[dict[str, str]] | None = None,
     ) -> list[dict]:
         if not self.api_key:
-            raise ValueError("ALLIN_YOUTUBE_API_KEY is required for official YouTube API discovery")
+            raise ValueError("TRANSCRIPTAPI_KEY is required for transcriptapi.com discovery")
 
         targets = channels or [{
             "channel_id": self.channel_id,
             "channel_handle": self.channel_handle,
             "channel_slug": self.channel_slug,
         }]
-
         floor = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-        floor_iso = floor.isoformat().replace(_RFC3339_Z_SUFFIX, "Z")
 
-        all_items: list[dict] = []
+        items: list[dict] = []
         seen: set[str] = set()
         for target in targets:
-            if len(all_items) >= max_items:
-                break
-            channel_id = self._resolve_channel_id(
-                channel_id=(target.get("channel_id") or ""),
-                channel_handle=(target.get("channel_handle") or self.channel_handle),
-            )
+            channel_ref = self._channel_ref(target)
+            if not channel_ref:
+                continue
             channel_slug = (target.get("channel_slug") or self.channel_slug or "allin").strip()
-            token: str | None = None
 
-            while len(all_items) < max_items:
-                remaining = max_items - len(all_items)
-                payload = self._request_json(
-                    "/youtube/v3/search",
-                    params={
-                        "part": "snippet",
-                        "channelId": channel_id,
-                        "order": "date",
-                        "type": "video",
-                        "maxResults": min(50, remaining),
-                        "publishedAfter": floor_iso,
-                        "pageToken": token,
-                        "key": self.api_key,
-                    },
+            payload = self._get("/youtube/channel/latest", params={"channel": channel_ref})
+            for row in payload.get("results", []):
+                vid = (row.get("videoId") or "").strip()
+                if not vid or vid in seen:
+                    continue
+                published = _parse_published_at(row.get("published"))
+                if published is not None and published < floor:
+                    continue
+                seen.add(vid)
+                items.append(
+                    {
+                        "video_id": vid,
+                        "channel_slug": channel_slug,
+                        "title": row.get("title"),
+                        "published_at": published,
+                        "source_url": row.get("link") or f"https://www.youtube.com/watch?v={vid}",
+                        "thumbnail_url": (row.get("thumbnail") or {}).get("url"),
+                        "description": row.get("description"),
+                        "duration_seconds": None,
+                    }
                 )
-                for row in payload.get("items", []):
-                    vid = ((row.get("id") or {}).get("videoId") or "").strip()
-                    if not vid or vid in seen:
-                        continue
-                    seen.add(vid)
-                    snippet = row.get("snippet") or {}
-                    thumbs = snippet.get("thumbnails") or {}
-                    thumb_url = (
-                        (thumbs.get("high") or {}).get("url")
-                        or (thumbs.get("medium") or {}).get("url")
-                        or (thumbs.get("default") or {}).get("url")
-                    )
-                    all_items.append(
-                        {
-                            "video_id": vid,
-                            "channel_slug": channel_slug,
-                            "title": snippet.get("title"),
-                            "published_at": _parse_published_at(snippet.get("publishedAt")),
-                            "source_url": f"https://www.youtube.com/watch?v={vid}",
-                            "thumbnail_url": thumb_url,
-                            "description": snippet.get("description"),
-                            "duration_seconds": None,
-                        }
-                    )
-                    if len(all_items) >= max_items:
-                        break
 
-                token = payload.get("nextPageToken")
-                if not token:
-                    break
+        items.sort(
+            key=lambda x: x.get("published_at") or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        return items[:max_items]
 
-        all_items.sort(key=lambda x: x.get("published_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-        return all_items[:max_items]
+    def _channel_ref(self, target: dict[str, str]) -> str:
+        channel_id = (target.get("channel_id") or "").strip()
+        if channel_id:
+            return channel_id
+        handle = (target.get("channel_handle") or self.channel_handle).lstrip("@").strip()
+        return f"@{handle}" if handle else ""
+
+    # -- transcripts -------------------------------------------------------
 
     def fetch_transcript(self, video_id: str, *, languages: list[str] | None = None) -> tuple[str, str | None, str]:
-        languages = languages or ["en-orig", "en", "en-US", "en-GB"]
+        codes = _normalize_languages(languages) or ["en", "asr"]
+        status, payload, _headers = self._request(
+            "/youtube/transcript",
+            params={
+                "video_url": video_id,
+                "format": "json",
+                "include_timestamp": "false",
+                "language": ",".join(codes),
+            },
+        )
 
-        tracks, rate_limited = self._list_caption_tracks(video_id)
-        track = self._select_caption_track(tracks, languages)
-        if track and track.get("baseUrl"):
-            resp = self._send_with_backoff(lambda: self.client.get(track["baseUrl"]))
-            if resp.status_code == 429:
-                rate_limited = True
-            elif resp.status_code == 200 and resp.text.strip():
-                text = _parse_srv(resp.text)
-                if text:
-                    return text, track.get("languageCode"), "youtube_timedtext"
+        if status == 200:
+            text = _flatten_segments(payload.get("transcript") or [])
+            if text:
+                return text, payload.get("language"), "transcriptapi"
+            raise ValueError("transcript unavailable")
 
-        if rate_limited:
-            raise TranscriptRateLimited(f"rate-limited fetching captions for {video_id}")
-        raise ValueError("transcript unavailable")
+        if status in _TRANSIENT_STATUS:
+            raise TranscriptRateLimited(f"transcriptapi {status} for {video_id}: {_detail_message(payload)}")
+        if status == 404:
+            raise ValueError("transcript unavailable")
+        raise RuntimeError(f"transcriptapi {status} for {video_id}: {_detail_message(payload)}")
 
-    def _list_caption_tracks(self, video_id: str) -> tuple[list[dict], bool]:
-        rate_limited = False
-        for spec in self._innertube_clients:
-            try:
-                resp = self._send_with_backoff(
-                    lambda s=spec: self.client.post(
-                        _INNERTUBE_PLAYER_URL,
-                        params={"key": s["key"]},
-                        json={"videoId": video_id, "context": s["context"]},
-                        headers={"User-Agent": s["user_agent"], "Content-Type": "application/json"},
-                    )
-                )
-            except Exception:
-                log.warning("caption track listing failed for %s", video_id, exc_info=True)
-                continue
-            if resp.status_code == 429:
-                rate_limited = True
-                continue
-            if resp.status_code != 200:
-                continue
-            renderer = (resp.json().get("captions") or {}).get(
-                "playerCaptionsTracklistRenderer"
-            ) or {}
-            tracks = renderer.get("captionTracks") or []
-            if tracks:
-                return tracks, rate_limited
-        return [], rate_limited
+    def available_languages(self, video_id: str) -> list[dict]:
+        """Free /youtube/info lookup returning ``[{code, name}, ...]``; used by diagnostics."""
+        status, payload, _headers = self._request("/youtube/info", params={"video_url": video_id})
+        if status == 200:
+            return payload.get("available_languages") or []
+        if status in _TRANSIENT_STATUS:
+            raise TranscriptRateLimited(f"transcriptapi {status}: {_detail_message(payload)}")
+        return []
 
-    @staticmethod
-    def _select_caption_track(tracks: list[dict], languages: list[str]) -> dict | None:
-        if not tracks:
-            return None
-        for lang in languages:
-            for track in tracks:
-                if (track.get("languageCode") or "").lower() == lang.lower():
-                    return track
-        for lang in languages:
-            base = lang.split("-")[0].lower()
-            for track in tracks:
-                if (track.get("languageCode") or "").lower().startswith(base):
-                    return track
-        return tracks[0]
+    # -- HTTP --------------------------------------------------------------
 
-    def _send_with_backoff(self, send):
-        last = None
+    def _get(self, path: str, *, params: dict) -> dict:
+        status, payload, _headers = self._request(path, params=params)
+        if status != 200:
+            raise RuntimeError(f"transcriptapi {status} for {path}: {_detail_message(payload)}")
+        return payload
+
+    def _request(self, path: str, *, params: dict) -> tuple[int, dict, dict]:
+        url = f"{self.api_base_url}{path}"
+        headers = {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"}
+        clean = {k: v for k, v in params.items() if v is not None}
+        status, payload, resp_headers = 0, {}, {}
         for attempt in range(1, max(1, self.retries) + 1):
-            resp = send()
-            last = resp
-            if resp.status_code not in _RETRYABLE_STATUS:
-                return resp
-            if attempt >= self.retries:
-                break
+            try:
+                resp = self.client.get(url, params=clean, headers=headers)
+            except Exception:
+                log.warning("transcriptapi request error for %s", path, exc_info=True)
+                if attempt >= self.retries:
+                    raise
+                sleep(self.backoff * (2 ** (attempt - 1)))
+                continue
+            status = resp.status_code
+            resp_headers = dict(resp.headers)
+            payload = _json_or_detail(resp)
+            if status not in _RETRYABLE_STATUS or attempt >= self.retries:
+                return status, payload, resp_headers
             self._sleep_for_retry(resp, attempt)
-        return last
+        return status, payload, resp_headers
 
-    def _sleep_for_retry(self, resp, attempt: int) -> None:
+    def _sleep_for_retry(self, resp: httpx.Response, attempt: int) -> None:
         retry_after = resp.headers.get("Retry-After")
         try:
             delay = float(retry_after) if retry_after else self.backoff * (2 ** (attempt - 1))
         except ValueError:
             delay = self.backoff * (2 ** (attempt - 1))
-        time.sleep(min(delay, 30.0))
+        sleep(min(delay, 30.0))
 
-    def _resolve_channel_id(self, *, channel_id: str = "", channel_handle: str = "") -> str:
-        if channel_id:
-            return channel_id
 
-        handle = (channel_handle or self.channel_handle).lstrip("@").strip()
-        if not handle:
-            raise ValueError("channel handle is required when channel_id is not provided")
+# -- module helpers --------------------------------------------------------
 
-        if handle == self.channel_handle and self.channel_id:
-            return self.channel_id
+def _json_or_detail(resp: httpx.Response) -> dict:
+    try:
+        data = resp.json()
+    except Exception:
+        return {"detail": (resp.text or "").strip()}
+    return data if isinstance(data, dict) else {"data": data}
 
-        payload = self._request_json(
-            "/youtube/v3/channels",
-            params={
-                "part": "id",
-                "forHandle": handle,
-                "maxResults": 1,
-                "key": self.api_key,
-            },
-        )
-        items = payload.get("items") or []
-        if not items:
-            raise ValueError(f"Could not resolve YouTube handle '@{handle}'")
-        cid = (items[0] or {}).get("id")
-        if not cid:
-            raise ValueError("YouTube channels response missing id")
-        if handle == self.channel_handle:
-            self.channel_id = cid
-        return cid
 
-    def _request_json(self, path: str, *, params: dict) -> dict:
-        url = f"{self.api_base_url}{path}"
-        last_exc: Exception | None = None
-        for attempt in range(1, self.retries + 1):
-            try:
-                resp = self.client.get(url, params={k: v for k, v in params.items() if v is not None})
-                resp.raise_for_status()
-                return resp.json()
-            except Exception as exc:
-                last_exc = exc
-                if attempt >= self.retries:
-                    break
-                sleep_for = self.backoff * (2 ** (attempt - 1))
-                time.sleep(sleep_for)
-        raise RuntimeError(f"YouTube API request failed for {path}") from last_exc
+def _detail_message(payload: dict) -> str:
+    detail = payload.get("detail")
+    if isinstance(detail, dict):  # 402 payment errors carry a nested object
+        return str(detail.get("message") or detail)
+    return str(detail) if detail is not None else ""
+
+
+def _normalize_languages(languages: list[str] | None) -> list[str]:
+    """Map app language prefs onto transcriptapi codes (region-stripped, deduped, max 10)."""
+    out: list[str] = []
+    for raw in languages or []:
+        code = (raw or "").strip().lower()
+        if not code:
+            continue
+        norm = code if (code == "asr" or code.startswith("asr-")) else code.split("-")[0]
+        if norm and norm not in out:
+            out.append(norm)
+    return out[:10]
+
+
+def _flatten_segments(segments: list[dict]) -> str:
+    lines: list[str] = []
+    for seg in segments:
+        text = re.sub(r"\s+", " ", seg.get("text") or "").strip()
+        if text and (not lines or lines[-1] != text):  # drop rolling-caption repeats
+            lines.append(text)
+    return "\n".join(lines).strip()
 
 
 def _parse_published_at(value: str | None) -> datetime | None:
@@ -283,21 +245,6 @@ def _parse_published_at(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", _RFC3339_Z_SUFFIX))
     except ValueError:
         return None
-
-
-def _parse_srv(body: str) -> str:
-    root = ET.fromstring(body)
-    nodes = root.findall(".//text")
-    if not nodes:
-        # srv3 format uses <p> elements (with <s> word children) instead of <text>.
-        nodes = root.findall(".//{*}p")
-    chunks: list[str] = []
-    for node in nodes:
-        raw = "".join(node.itertext())
-        cleaned = re.sub(r"\s+", " ", html.unescape(raw)).strip()
-        if cleaned:
-            chunks.append(cleaned)
-    return "\n".join(chunks).strip()
 
 
 def content_hash(text: str) -> str:
