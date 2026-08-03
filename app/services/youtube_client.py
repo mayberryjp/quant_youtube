@@ -149,7 +149,7 @@ class YouTubeClient:
         return all_items[:max_items]
 
     def fetch_transcript(self, video_id: str, *, languages: list[str] | None = None) -> tuple[str, str | None, str]:
-        languages = languages or ["en", "en-US"]
+        languages = languages or ["en-orig", "en", "en-US", "en-GB"]
 
         tracks, rate_limited = self._list_caption_tracks(video_id)
         track = self._select_caption_track(tracks, languages)

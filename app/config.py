@@ -81,7 +81,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("YOUTUBE_CHANNELS"),
     )
     transcript_languages: str = Field(
-        default="en,en-US",
+        default="en-orig,en,en-US,en-GB",
         validation_alias=AliasChoices("TRANSCRIPT_LANGUAGES"),
     )
     # YouTube's own public web/mobile player keys; override via env if desired.

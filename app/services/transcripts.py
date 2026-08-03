@@ -22,7 +22,7 @@ class TranscriptService:
     ) -> None:
         self.episodes = episode_repo
         self.youtube = youtube_client
-        self.languages = transcript_languages or ["en", "en-US"]
+        self.languages = transcript_languages or ["en-orig", "en", "en-US", "en-GB"]
         self.max_attempts = max_attempts
 
     def run(self, *, limit: int = 200) -> Counter:
