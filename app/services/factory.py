@@ -78,6 +78,7 @@ def build_transcript_service(engine=None) -> TranscriptService:
         youtube_client=_youtube(),
         transcript_languages=settings.transcript_language_preference,
         max_attempts=settings.max_attempts,
+        min_duration_seconds=settings.min_duration_seconds,
     )
 
 

@@ -12,6 +12,7 @@ class EpisodeStatus(str, Enum):
     distilled = "distilled"
     done = "done"
     failed = "failed"
+    skipped = "skipped"
 
 
 class Episode(BaseModel):

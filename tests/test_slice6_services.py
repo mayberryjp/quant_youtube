@@ -57,7 +57,14 @@ class FakeEpisodeRepo:
     def mark_fetched(self, eid, **kwargs):
         e = self._by_id[eid]
         e.raw_text = kwargs.get("raw_text")
+        e.duration_seconds = kwargs.get("duration_seconds")
         e.status = EpisodeStatus.fetched
+
+    def mark_skipped(self, eid, **kwargs):
+        e = self._by_id[eid]
+        e.duration_seconds = kwargs.get("duration_seconds")
+        e.last_error = kwargs.get("reason")
+        e.status = EpisodeStatus.skipped
 
     def set_status(self, eid, status, last_error=None, bump_attempts=False):
         e = self._by_id[eid]
@@ -114,10 +121,11 @@ class FakeDistRepo:
 
 
 class FakeYouTube:
-    def __init__(self, *, items=None, transcript=("hello transcript", "en", "test"), rate_limited=False):
+    def __init__(self, *, items=None, transcript=("hello transcript", "en", "test"), rate_limited=False, length_seconds=None):
         self._items = items or []
         self._transcript = transcript
         self._rate_limited = rate_limited
+        self._length_seconds = length_seconds
 
     def discover_recent_videos(self, **_kwargs):
         return self._items
@@ -126,6 +134,17 @@ class FakeYouTube:
         if self._rate_limited:
             raise TranscriptRateLimited("429")
         return self._transcript
+
+    def fetch_transcript_detail(self, _video_id, **_kwargs):
+        if self._rate_limited:
+            raise TranscriptRateLimited("429")
+        text, language, source = self._transcript
+        return {
+            "text": text,
+            "language": language,
+            "source": source,
+            "length_seconds": self._length_seconds,
+        }
 
 
 class FakeLLM:
@@ -211,6 +230,32 @@ class TestTranscripts:
         assert totals["failures"] == 1
         assert episodes.get_by_id(e.id).status == EpisodeStatus.discovered
         assert episodes.get_by_id(e.id).attempts == 0
+
+    def test_skips_short_video(self):
+        episodes = FakeEpisodeRepo()
+        svc = TranscriptService(
+            episode_repo=episodes,
+            youtube_client=FakeYouTube(length_seconds=120),
+            min_duration_seconds=600,
+        )
+        e = episodes.add("abcdefghijk", status=EpisodeStatus.discovered)
+        totals = svc.run()
+        assert totals["skipped"] == 1
+        assert totals["transcripts_fetched"] == 0
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.skipped
+        assert episodes.get_by_id(e.id).raw_text is None
+
+    def test_keeps_long_video(self):
+        episodes = FakeEpisodeRepo()
+        svc = TranscriptService(
+            episode_repo=episodes,
+            youtube_client=FakeYouTube(length_seconds=1200),
+            min_duration_seconds=600,
+        )
+        e = episodes.add("abcdefghijk", status=EpisodeStatus.discovered)
+        totals = svc.run()
+        assert totals["transcripts_fetched"] == 1
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.fetched
 
     def test_restart_refetches(self):
         episodes, svc = self._svc()

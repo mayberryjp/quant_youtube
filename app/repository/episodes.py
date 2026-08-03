@@ -67,6 +67,7 @@ class EpisodeRepository:
         content_hash: str,
         transcript_language: str | None = None,
         transcript_source: str | None = None,
+        duration_seconds: int | None = None,
     ) -> None:
         sql = text(
             """
@@ -75,6 +76,7 @@ class EpisodeRepository:
                 content_hash = :content_hash,
                 transcript_language = :transcript_language,
                 transcript_source = :transcript_source,
+                duration_seconds = COALESCE(:duration_seconds, duration_seconds),
                 status = 'fetched',
                 fetched_at = :now,
                 last_error = NULL
@@ -90,7 +92,34 @@ class EpisodeRepository:
                     "content_hash": content_hash,
                     "transcript_language": transcript_language,
                     "transcript_source": transcript_source,
+                    "duration_seconds": duration_seconds,
                     "now": datetime.now(timezone.utc),
+                },
+            )
+
+    def mark_skipped(
+        self,
+        episode_id: int,
+        *,
+        duration_seconds: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        sql = text(
+            """
+            UPDATE allin.episodes
+            SET status = 'skipped',
+                duration_seconds = COALESCE(:duration_seconds, duration_seconds),
+                last_error = :reason
+            WHERE id = :id
+            """
+        )
+        with self.engine.begin() as conn:
+            conn.execute(
+                sql,
+                {
+                    "id": episode_id,
+                    "duration_seconds": duration_seconds,
+                    "reason": reason,
                 },
             )
 

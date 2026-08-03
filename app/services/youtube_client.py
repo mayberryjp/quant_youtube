@@ -136,6 +136,11 @@ class YouTubeClient:
     # -- transcripts -------------------------------------------------------
 
     def fetch_transcript(self, video_id: str, *, languages: list[str] | None = None) -> tuple[str, str | None, str]:
+        detail = self.fetch_transcript_detail(video_id, languages=languages)
+        return detail["text"], detail["language"], detail["source"]
+
+    def fetch_transcript_detail(self, video_id: str, *, languages: list[str] | None = None) -> dict:
+        """Like ``fetch_transcript`` but also surfaces ``length_seconds`` from the response."""
         codes = _normalize_languages(languages) or ["en", "asr"]
         log.debug("transcript: fetching %s (languages=%s)", video_id, codes)
         status, payload, _headers = self._request(
@@ -151,8 +156,18 @@ class YouTubeClient:
         if status == 200:
             text = _flatten_segments(payload.get("transcript") or [])
             if text:
-                log.debug("transcript: %s -> %d chars, language=%s", video_id, len(text), payload.get("language"))
-                return text, payload.get("language"), "transcriptapi"
+                length = payload.get("length_seconds")
+                length_seconds = length if isinstance(length, int) and not isinstance(length, bool) else None
+                log.debug(
+                    "transcript: %s -> %d chars, language=%s, length=%ss",
+                    video_id, len(text), payload.get("language"), length_seconds,
+                )
+                return {
+                    "text": text,
+                    "language": payload.get("language"),
+                    "source": "transcriptapi",
+                    "length_seconds": length_seconds,
+                }
             raise ValueError("transcript unavailable")
 
         if status in _TRANSIENT_STATUS:
