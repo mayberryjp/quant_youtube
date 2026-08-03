@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app import db, dependencies as deps
 from app.config import settings
+from app.models.domain import EpisodeStatus
 from app.services.discovery import DiscoveryService
 from app.services.distillation import DistillService
 from app.services.entity_pass import WatchlistApiClient
@@ -112,3 +113,17 @@ def run_all_once(run_date=None) -> dict:
     fetched = build_transcript_service(engine).run()
     distilled = build_distill_service(engine).run()
     return {"episodes_discovered": discovered, **dict(fetched), **dict(distilled)}
+
+
+def requeue_episode(video_id: str, engine=None) -> dict:
+    """Full requeue for one episode: reset, re-fetch the transcript, then re-distill."""
+    engine = engine or db.get_engine()
+    transcripts = build_transcript_service(engine)
+    episode = transcripts.episodes.get_by_identifier(video_id)
+    if episode is None:
+        return {"error": "not_found", "video_id": video_id}
+    totals = dict(transcripts.restart(episode))
+    refreshed = transcripts.episodes.get_by_id(episode.id)
+    if refreshed is not None and refreshed.status == EpisodeStatus.fetched:
+        totals.update(dict(build_distill_service(engine).distill_one(refreshed)))
+    return totals

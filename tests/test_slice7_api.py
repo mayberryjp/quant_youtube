@@ -23,6 +23,9 @@ class FakeEpisodeRepo:
     def get_by_id(self, eid):
         return _episode(eid)
 
+    def delete(self, eid):
+        return eid == 1
+
 
 class FakeService:
     def __init__(self):
@@ -110,6 +113,23 @@ class TestReadApi:
         resp = app_client.post_json("/episodes/abcdefghijk/reprocess", {})
         assert resp.status_int == 202
         assert resp.json["status"] == "accepted"
+
+    def test_requeue_endpoint(self, app_client, monkeypatch):
+        monkeypatch.setattr("app.routes.episodes.build_transcript_service", lambda *a, **k: FakeService())
+        monkeypatch.setattr(
+            "app.routes.episodes.requeue_episode",
+            lambda *a, **k: {"reprocessed": 1, "transcripts_fetched": 1, "distilled": 1},
+        )
+        resp = app_client.post_json("/episodes/abcdefghijk/requeue", {})
+        assert resp.status_int == 202
+        assert resp.json["status"] == "accepted"
+
+    def test_delete_episode_endpoint(self, app_client, monkeypatch):
+        monkeypatch.setattr("app.dependencies.episode_repo", lambda *a, **k: FakeEpisodeRepo())
+        resp = app_client.delete("/episodes/1")
+        assert resp.status_int == 200
+        assert resp.json["status"] == "deleted"
+        assert resp.json["id"] == 1
 
     def test_list_runs(self, app_client, monkeypatch):
         monkeypatch.setattr("app.dependencies.run_repo", lambda *a, **k: RunRepo())

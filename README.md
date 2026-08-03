@@ -43,11 +43,14 @@ curl http://localhost:8022/allin/health
 - GET /allin/stats
 - GET /episodes
 - GET /episodes/{id}
+- DELETE /episodes/{id}
 - POST /episodes/{video_id}/reprocess
 - POST /episodes/{video_id}/restart
+- POST /episodes/{video_id}/requeue
 - POST /reprocess
 - POST /retry-failed
 - POST /runs/trigger
+- GET /entities
 - GET /jobs/{id}
 
 ## Workers

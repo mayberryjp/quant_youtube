@@ -9,7 +9,12 @@ from app import dependencies as deps
 from app.config import settings
 from app.models.requests import ReprocessRequest, RetryFailedRequest, RunTriggerRequest
 from app.models.responses import DistillationResponse, EpisodeDetailResponse, EpisodeResponse
-from app.services.factory import build_distill_service, build_transcript_service, run_all_once
+from app.services.factory import (
+    build_distill_service,
+    build_transcript_service,
+    requeue_episode,
+    run_all_once,
+)
 from app.services.jobs import registry
 
 sub = Bottle()
@@ -67,6 +72,14 @@ def get_episode(episode_id: int):
     return detail.model_dump(mode="json")
 
 
+@sub.delete("/episodes/<episode_id:int>")
+def delete_episode(episode_id: int):
+    repo = deps.episode_repo()
+    if not repo.delete(episode_id):
+        raise _json_error(404, "Episode not found")
+    return {"status": "deleted", "id": episode_id}
+
+
 @sub.post("/episodes/<video_id>/reprocess")
 def reprocess_one(video_id: str):
     service = build_distill_service()
@@ -92,6 +105,23 @@ def restart_one(video_id: str):
         raise _json_error(404, "Episode not found")
 
     job = registry.submit("restart", lambda: service.restart(e), key=f"restart:{video_id}")
+    response.status = 202
+    return {
+        "status": "accepted",
+        "job_id": job["id"],
+        "job_status": job["status"],
+        "video_id": video_id,
+    }
+
+
+@sub.post("/episodes/<video_id>/requeue")
+def requeue_one(video_id: str):
+    service = build_transcript_service()
+    e = service.episodes.get_by_identifier(video_id)
+    if e is None:
+        raise _json_error(404, "Episode not found")
+
+    job = registry.submit("requeue", lambda: requeue_episode(video_id), key=f"requeue:{video_id}")
     response.status = 202
     return {
         "status": "accepted",
