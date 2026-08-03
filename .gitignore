@@ -1,0 +1,9 @@
+# Local env and secrets
+.env
+
+# Scratch / ad-hoc scripts and their output (not part of the app or test suite)
+/scratch/
+
+# Python
+__pycache__/
+*.py[cod]
