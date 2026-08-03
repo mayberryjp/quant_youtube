@@ -123,6 +123,7 @@ def test_fetch_transcript_uses_caption_track_base_url():
     yt = YouTubeClient(
         api_base_url="https://www.googleapis.com",
         api_key="test-key",
+        innertube_web_key="test-key",
         client=client,
     )
 
@@ -144,6 +145,7 @@ def test_fetch_transcript_raises_when_no_tracks():
     yt = YouTubeClient(
         api_base_url="https://www.googleapis.com",
         api_key="test-key",
+        innertube_web_key="test-key",
         client=client,
     )
 
@@ -161,6 +163,7 @@ def test_fetch_transcript_rate_limited_is_transient():
     yt = YouTubeClient(
         api_base_url="https://www.googleapis.com",
         api_key="test-key",
+        innertube_web_key="test-key",
         client=client,
         retries=1,
         backoff=0,

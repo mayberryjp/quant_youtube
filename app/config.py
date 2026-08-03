@@ -84,6 +84,15 @@ class Settings(BaseSettings):
         default="en,en-US",
         validation_alias=AliasChoices("TRANSCRIPT_LANGUAGES"),
     )
+    # YouTube's own public web/mobile player keys; override via env if desired.
+    innertube_web_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("INNERTUBE_WEB_KEY"),
+    )
+    innertube_android_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("INNERTUBE_ANDROID_KEY"),
+    )
 
     llm_base_url: str = Field(
         default="http://ollama:11434/v1",

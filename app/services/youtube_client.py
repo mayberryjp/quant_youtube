@@ -13,26 +13,15 @@ import httpx
 log = logging.getLogger("quant_allinpodcast.youtube")
 _RFC3339_Z_SUFFIX = "+00:00"
 
-# Public InnerTube endpoint/keys embedded in YouTube's own players (not secrets).
+# InnerTube player endpoint + client contexts. API keys are injected from config (env), never hardcoded here.
 _INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
-_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
-# ANDROID client returns caption tracks more reliably than WEB, which YouTube often gates.
-_INNERTUBE_CLIENTS = (
-    {
-        "key": "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
-        "context": {"client": {"clientName": "ANDROID", "clientVersion": "19.09.37", "androidSdkVersion": 30, "hl": "en", "gl": "US"}},
-        "user_agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-    },
-    {
-        "key": _INNERTUBE_KEY,
-        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240726.00.00", "hl": "en"}},
-        "user_agent": _BROWSER_USER_AGENT,
-    },
-)
+_ANDROID_USER_AGENT = "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+_ANDROID_CONTEXT = {"client": {"clientName": "ANDROID", "clientVersion": "19.09.37", "androidSdkVersion": 30, "hl": "en", "gl": "US"}}
+_WEB_CONTEXT = {"client": {"clientName": "WEB", "clientVersion": "2.20240726.00.00", "hl": "en"}}
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -52,6 +41,8 @@ class YouTubeClient:
         timeout: int = 30,
         retries: int = 3,
         backoff: float = 1.0,
+        innertube_web_key: str = "",
+        innertube_android_key: str = "",
         client: httpx.Client | None = None,
     ) -> None:
         self.api_base_url = api_base_url.rstrip("/")
@@ -63,6 +54,16 @@ class YouTubeClient:
         self.retries = retries
         self.backoff = backoff
         self.client = client or httpx.Client(timeout=timeout, follow_redirects=True)
+        # Caption clients built only for keys that are configured; empties are skipped.
+        self._innertube_clients: list[dict] = []
+        if innertube_android_key:
+            self._innertube_clients.append(
+                {"key": innertube_android_key, "context": _ANDROID_CONTEXT, "user_agent": _ANDROID_USER_AGENT}
+            )
+        if innertube_web_key:
+            self._innertube_clients.append(
+                {"key": innertube_web_key, "context": _WEB_CONTEXT, "user_agent": _BROWSER_USER_AGENT}
+            )
 
     def close(self) -> None:
         self.client.close()
@@ -167,7 +168,7 @@ class YouTubeClient:
 
     def _list_caption_tracks(self, video_id: str) -> tuple[list[dict], bool]:
         rate_limited = False
-        for spec in _INNERTUBE_CLIENTS:
+        for spec in self._innertube_clients:
             try:
                 resp = self._send_with_backoff(
                     lambda s=spec: self.client.post(

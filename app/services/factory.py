@@ -23,6 +23,8 @@ def _youtube() -> YouTubeClient:
         timeout=settings.llm_timeout,
         retries=settings.http_retries,
         backoff=settings.retry_backoff,
+        innertube_web_key=settings.innertube_web_key,
+        innertube_android_key=settings.innertube_android_key,
     )
 
 
