@@ -28,13 +28,17 @@ class TranscriptService:
     def run(self, *, limit: int = 200) -> Counter:
         totals: Counter = Counter()
         pending = self.episodes.list_needing_transcript(limit=limit, max_attempts=self.max_attempts)
-        for episode in pending:
+        if not pending:
+            log.info("transcript pass: no episodes need a transcript (limit=%d, max_attempts=%d)", limit, self.max_attempts)
+            return totals
+        log.info("transcript pass: %d episode(s) to fetch (limit=%d)", len(pending), limit)
+        for i, episode in enumerate(pending, 1):
+            log.info("transcript [%d/%d] %s %s", i, len(pending), episode.video_id, (episode.title or "").strip()[:80])
             if self.fetch_one(episode):
                 totals["transcripts_fetched"] += 1
             else:
                 totals["failures"] += 1
-        if totals:
-            log.info("transcript pass: %s", dict(totals))
+        log.info("transcript pass complete: %s", dict(totals))
         return totals
 
     def fetch_one(self, episode: Episode) -> bool:

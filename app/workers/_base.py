@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 log = logging.getLogger("quant_allinpodcast.worker")
 
 
-def configure_logging() -> None:
+def configure_logging(verbose: bool = False) -> None:
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
         stream=sys.stderr,
         force=True,
     )
@@ -54,4 +54,6 @@ def poll_loop(run_once, *, name: str, interval: int) -> None:
             run_once()
         except Exception:
             log.exception("%s loop failed", name)
-        time.sleep(max(5, interval))
+        sleep_for = max(5, interval)
+        log.info("%s idle, next poll in %ds", name, sleep_for)
+        time.sleep(sleep_for)

@@ -15,7 +15,7 @@ import hashlib
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from time import sleep
+from time import perf_counter, sleep
 
 import httpx
 
@@ -81,17 +81,21 @@ class YouTubeClient:
             "channel_slug": self.channel_slug,
         }]
         floor = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        log.info("discovery: crawling %d channel(s), lookback=%dd, max_items=%d", len(targets), lookback_days, max_items)
 
         items: list[dict] = []
         seen: set[str] = set()
         for target in targets:
             channel_ref = self._channel_ref(target)
             if not channel_ref:
+                log.warning("discovery: skipping target with no channel id/handle: %r", target)
                 continue
             channel_slug = (target.get("channel_slug") or self.channel_slug or "allin").strip()
 
             payload = self._get("/youtube/channel/latest", params={"channel": channel_ref})
-            for row in payload.get("results", []):
+            rows = payload.get("results", [])
+            kept = 0
+            for row in rows:
                 vid = (row.get("videoId") or "").strip()
                 if not vid or vid in seen:
                     continue
@@ -99,6 +103,7 @@ class YouTubeClient:
                 if published is not None and published < floor:
                     continue
                 seen.add(vid)
+                kept += 1
                 items.append(
                     {
                         "video_id": vid,
@@ -111,12 +116,15 @@ class YouTubeClient:
                         "duration_seconds": None,
                     }
                 )
+            log.info("discovery: %s -> %d returned, %d within lookback", channel_ref, len(rows), kept)
 
         items.sort(
             key=lambda x: x.get("published_at") or datetime.min.replace(tzinfo=timezone.utc),
             reverse=True,
         )
-        return items[:max_items]
+        result = items[:max_items]
+        log.info("discovery: %d unique video(s) selected", len(result))
+        return result
 
     def _channel_ref(self, target: dict[str, str]) -> str:
         channel_id = (target.get("channel_id") or "").strip()
@@ -129,6 +137,7 @@ class YouTubeClient:
 
     def fetch_transcript(self, video_id: str, *, languages: list[str] | None = None) -> tuple[str, str | None, str]:
         codes = _normalize_languages(languages) or ["en", "asr"]
+        log.debug("transcript: fetching %s (languages=%s)", video_id, codes)
         status, payload, _headers = self._request(
             "/youtube/transcript",
             params={
@@ -142,6 +151,7 @@ class YouTubeClient:
         if status == 200:
             text = _flatten_segments(payload.get("transcript") or [])
             if text:
+                log.debug("transcript: %s -> %d chars, language=%s", video_id, len(text), payload.get("language"))
                 return text, payload.get("language"), "transcriptapi"
             raise ValueError("transcript unavailable")
 
@@ -174,10 +184,11 @@ class YouTubeClient:
         clean = {k: v for k, v in params.items() if v is not None}
         status, payload, resp_headers = 0, {}, {}
         for attempt in range(1, max(1, self.retries) + 1):
+            started = perf_counter()
             try:
                 resp = self.client.get(url, params=clean, headers=headers)
             except Exception:
-                log.warning("transcriptapi request error for %s", path, exc_info=True)
+                log.warning("transcriptapi GET %s failed (attempt %d/%d)", path, attempt, self.retries, exc_info=True)
                 if attempt >= self.retries:
                     raise
                 sleep(self.backoff * (2 ** (attempt - 1)))
@@ -185,8 +196,16 @@ class YouTubeClient:
             status = resp.status_code
             resp_headers = dict(resp.headers)
             payload = _json_or_detail(resp)
+            log.debug(
+                "transcriptapi GET %s -> %d in %.2fs (attempt %d/%d, cache=%s, remaining=%s)",
+                path, status, perf_counter() - started, attempt, self.retries,
+                resp_headers.get("X-Cache-Status"), resp_headers.get("X-RateLimit-Remaining"),
+            )
             if status not in _RETRYABLE_STATUS or attempt >= self.retries:
+                if status >= 400:
+                    log.warning("transcriptapi GET %s -> %d: %s", path, status, _detail_message(payload))
                 return status, payload, resp_headers
+            log.info("transcriptapi GET %s -> %d, retrying (attempt %d/%d)", path, status, attempt, self.retries)
             self._sleep_for_retry(resp, attempt)
         return status, payload, resp_headers
 

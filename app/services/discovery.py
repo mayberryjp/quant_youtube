@@ -33,9 +33,14 @@ class DiscoveryService:
     ) -> int:
         run_date = run_date or datetime.now(timezone.utc).date()
         self.runs.start_run(run_date)
+        effective_lookback = lookback_days if lookback_days is not None else self.lookback_days
+        log.info(
+            "discovery run %s: %d channel target(s), lookback=%dd, max_items=%d",
+            run_date, len(self.channel_targets) or 1, effective_lookback, max_items,
+        )
         try:
             items = self.youtube.discover_recent_videos(
-                lookback_days=lookback_days if lookback_days is not None else self.lookback_days,
+                lookback_days=effective_lookback,
                 max_items=max_items,
                 channels=self.channel_targets,
             )

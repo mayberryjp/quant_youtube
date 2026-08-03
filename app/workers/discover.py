@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import date
 
 from app.config import settings
 from app.services.factory import build_discovery_service
 from app.workers._base import configure_logging, daily_loop
 
+log = logging.getLogger("quant_allinpodcast.worker")
+
 
 def main(argv: list[str] | None = None) -> None:
-    configure_logging()
     parser = argparse.ArgumentParser(prog="quant_allinpodcast.workers.discover")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--wake-time", default=settings.ingest_wake_time)
@@ -19,7 +21,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--date", type=lambda s: date.fromisoformat(s), default=None)
     parser.add_argument("--lookback-days", type=int, default=None)
     parser.add_argument("--max-items", type=int, default=80)
+    parser.add_argument("-v", "--verbose", action="store_true", help="enable DEBUG logging (per-request detail)")
     args = parser.parse_args(argv)
+    configure_logging(args.verbose)
 
     def _run() -> None:
         build_discovery_service().run(
@@ -29,9 +33,11 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     if args.once:
+        log.info("discover worker: single pass (lookback_days=%s, max_items=%d)", args.lookback_days, args.max_items)
         _run()
         return
 
+    log.info("discover worker: daily loop (wake=%s, interval_hours=%s)", args.wake_time, args.interval_hours)
     daily_loop(_run, name="discover", wake_time=args.wake_time, interval_hours=args.interval_hours)
 
 

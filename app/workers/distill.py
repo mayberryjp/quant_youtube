@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import date
 
 from app.config import settings
 from app.services.factory import build_distill_service
 from app.workers._base import configure_logging, poll_loop
 
+log = logging.getLogger("quant_allinpodcast.worker")
+
 
 def main(argv: list[str] | None = None) -> None:
-    configure_logging()
     parser = argparse.ArgumentParser(prog="quant_allinpodcast.workers.distill")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--interval", type=int, default=900, help="poll interval in seconds")
@@ -20,11 +22,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--reprocess-stale", action="store_true")
     parser.add_argument("--from-date", type=lambda s: date.fromisoformat(s), default=None)
     parser.add_argument("--to-date", type=lambda s: date.fromisoformat(s), default=None)
+    parser.add_argument("-v", "--verbose", action="store_true", help="enable DEBUG logging")
     args = parser.parse_args(argv)
+    configure_logging(args.verbose)
 
     service = build_distill_service()
 
     if args.reprocess:
+        log.info("distill worker: reprocess %s", args.reprocess)
         episode = service.episodes.get_by_identifier(args.reprocess)
         if not episode:
             raise SystemExit(f"Unknown video_id: {args.reprocess}")
@@ -32,21 +37,26 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.reprocess_stale:
-        candidates = service.reprocess_candidates(
-            from_date=args.from_date,
-            to_date=args.to_date,
-            only_stale=True,
-            current_model=settings.llm_model,
-            current_prompt=settings.distill_prompt_version,
+        candidates = list(
+            service.reprocess_candidates(
+                from_date=args.from_date,
+                to_date=args.to_date,
+                only_stale=True,
+                current_model=settings.llm_model,
+                current_prompt=settings.distill_prompt_version,
+            )
         )
+        log.info("distill worker: reprocess-stale (%d candidate(s))", len(candidates))
         for episode in candidates:
             service.reprocess(episode)
         return
 
     if args.once:
+        log.info("distill worker: single pass (limit=%d)", args.limit)
         service.run(limit=args.limit)
         return
 
+    log.info("distill worker: polling every %ds (limit=%d)", args.interval, args.limit)
     poll_loop(lambda: build_distill_service().run(limit=args.limit), name="distill", interval=args.interval)
 
 
