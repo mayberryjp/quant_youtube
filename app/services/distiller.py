@@ -8,43 +8,67 @@ from app.models.llm_schemas import DistillOutput
 
 log = logging.getLogger("quant_allinpodcast.distiller")
 
+_DEPTH = (
+    "Be EXHAUSTIVE. Cover EVERY distinct topic, company, ticker, guest, trade, and market "
+    "discussed — do not omit any segment, and do not merge unrelated points into one line. "
+    "Favor depth and breadth over brevity: the summary should be long and comprehensive, with a "
+    "dedicated section for each topic and a sub-bullet for each specific point within it. "
+    "Preserve concrete specifics wherever the source states them: tickers, company names, price "
+    "levels, percentage moves, price targets, earnings and guidance numbers, analyst ratings and "
+    "upgrades/downgrades, deals (M&A, partnerships, debt/equity raises), macro data, and which "
+    "speaker or guest made each call. Do NOT shorten, generalize, or drop details to save space. "
+    "Capture all key points accurately and do not invent information that is not present in the source."
+)
+
+_SUMMARY_FORMAT = (
+    "The \"summary\" value MUST be a Markdown document with this structure:\n"
+    "- A bold title line naming the podcast and episode/date if known, e.g. "
+    "\"**All-In Podcast Transcript Summary (June 24, 2026)**\".\n"
+    "- A numbered list of the major topics in the order discussed; each item starts with a bold "
+    "section heading (e.g. \"1. **Market Overview**:\", \"2. **AI Capex**:\").\n"
+    "- Under each heading, an indented Markdown bullet list where every distinct sub-point is its "
+    "own bullet beginning with a bold label and a colon (e.g. \"   - **Earnings**: ...\").\n"
+    "- End with a single closing sentence stating what the summary captures.\n"
+    + _DEPTH
+)
+
+_JSON_CONTRACT = (
+    " OUTPUT FORMAT — follow EXACTLY:\n"
+    "Return ONLY a single JSON object with these THREE top-level keys and NOTHING else:\n"
+    '  "summary": string  — the Markdown summary described above,\n'
+    '  "key_topics": array of short strings — one per numbered section/topic,\n'
+    '  "segments": array of objects, each with "speaker", "role", and "summary".\n'
+    "HARD RULES:\n"
+    '- The three keys "summary", "key_topics", and "segments" MUST be at the ROOT of the object.\n'
+    "- Do NOT wrap the object inside another key. Do NOT use the podcast name, date, or a title as a "
+    "key. The title belongs INSIDE the \"summary\" string, never as a JSON key.\n"
+    '- Do NOT nest the object under keys like "result", "output", "data", "document", or "response".\n'
+    '- "summary" MUST be a plain string, not an object or array.\n'
+    "- Do NOT add any keys other than the three specified.\n"
+    "- Return raw JSON only: no prose, no explanation, and no Markdown code fences.\n"
+    'Example of the REQUIRED shape: '
+    '{"summary": "**All-In ... Summary**\\n1. **Topic**: ...", "key_topics": ["Topic"], '
+    '"segments": [{"speaker": "Host", "role": "host", "summary": "..."}]}'
+)
+
 DISTILL_SYSTEM = (
-    "Summarize this podcast transcript into a detailed markdown summary and return JSON "
-    "with keys summary, key_topics, symbols, and segments only. "
-    "symbols must be an array of normalized stock tickers like AAPL or BRK.B."
+    "Summarize the following podcast transcript into a thorough, self-contained, DETAILED summary. "
+    + _SUMMARY_FORMAT
+    + _JSON_CONTRACT
 )
 
 REDUCE_SYSTEM = (
-    "Merge the chunk summaries into one detailed summary and return JSON with "
-    "summary, key_topics, symbols, and segments only. "
-    "symbols must be an array of normalized stock tickers like AAPL or BRK.B."
+    "The following are DETAILED summaries of consecutive parts of ONE podcast transcript. Merge them "
+    "into a single summary that RETAINS ALL detail from every part — combine overlapping topics and "
+    "drop only exact duplicates, but keep every distinct topic, company, ticker, number, rating, "
+    "deal, trade, and named speaker that appears in ANY part. This is a merge, NOT a re-summarization: "
+    "do not compress or shorten. The result must be at least as long and detailed as the parts "
+    "combined. Order sections as the podcast progressed. "
+    + _SUMMARY_FORMAT
+    + _JSON_CONTRACT
 )
 
 _HEADING = re.compile(r"^\s*(?:\d+\.\s+)?\*\*(.+?)\*\*\s*:?\s*$", re.MULTILINE)
-_DOLLAR_TICKER = re.compile(r"\$([A-Z]{1,6}(?:\.[A-Z])?)\b")
-_PAREN_TICKER = re.compile(r"\(([A-Z]{1,6}(?:\.[A-Z])?)\)")
-_STOP_TICKERS = {
-    "A",
-    "AN",
-    "AND",
-    "AS",
-    "AT",
-    "BY",
-    "FOR",
-    "FROM",
-    "IN",
-    "IS",
-    "IT",
-    "OF",
-    "ON",
-    "OR",
-    "THE",
-    "TO",
-    "US",
-    "USA",
-    "WE",
-    "YOU",
-}
 
 
 def _user_prompt(text: str) -> str:
@@ -83,61 +107,6 @@ def _topics_from_summary(summary: str) -> list[str]:
     return _dedupe_preserve([m.group(1).strip() for m in _HEADING.finditer(summary or "")])
 
 
-def _normalize_symbol(raw: str) -> str | None:
-    token = (raw or "").strip().upper()
-    if not token:
-        return None
-    if token in _STOP_TICKERS:
-        return None
-    if not re.fullmatch(r"[A-Z]{1,6}(?:\.[A-Z])?", token):
-        return None
-    return token
-
-
-def _symbols_from_text(text: str) -> list[str]:
-    if not text:
-        return []
-    found: list[str] = []
-    for match in _DOLLAR_TICKER.finditer(text):
-        sym = _normalize_symbol(match.group(1))
-        if sym:
-            found.append(sym)
-    for match in _PAREN_TICKER.finditer(text):
-        sym = _normalize_symbol(match.group(1))
-        if sym:
-            found.append(sym)
-    return _dedupe_preserve(found)
-
-
-def _normalize_symbols(items: list[str] | None) -> list[str]:
-    out: list[str] = []
-    for item in items or []:
-        sym = _normalize_symbol(item)
-        if sym:
-            out.append(sym)
-    return _dedupe_preserve(out)
-
-
-def _extract_symbols(raw: Any) -> list[str]:
-    if isinstance(raw, str):
-        return _normalize_symbols([raw])
-    if isinstance(raw, list):
-        return _normalize_symbols([str(x) for x in raw if x is not None])
-    if isinstance(raw, dict):
-        symbols = raw.get("symbols")
-        if symbols is not None:
-            return _extract_symbols(symbols)
-        tickers = raw.get("tickers")
-        if tickers is not None:
-            return _extract_symbols(tickers)
-    return []
-
-
-def _enrich_symbols(output: DistillOutput, text: str) -> DistillOutput:
-    merged = _dedupe_preserve(output.symbols + _symbols_from_text(output.summary or "") + _symbols_from_text(text))
-    return output.model_copy(update={"symbols": merged})
-
-
 def _fallback_from_partials(partials: list[DistillOutput]) -> DistillOutput:
     merged_summary = "\n\n".join(
         f"### Chunk {idx}\n{(p.summary or '').strip()}" for idx, p in enumerate(partials, 1)
@@ -145,9 +114,8 @@ def _fallback_from_partials(partials: list[DistillOutput]) -> DistillOutput:
     topics = _dedupe_preserve([t for p in partials for t in (p.key_topics or [])])
     if not topics:
         topics = _topics_from_summary(merged_summary)
-    symbols = _dedupe_preserve([s for p in partials for s in (p.symbols or [])])
     segments = [s.model_dump() for p in partials for s in (p.segments or [])][:200]
-    return DistillOutput(summary=merged_summary, key_topics=topics, symbols=symbols, segments=segments)
+    return DistillOutput(summary=merged_summary, key_topics=topics, segments=segments)
 
 
 def _is_thin_reduce_output(*, reduced: DistillOutput, partials: list[DistillOutput], total_partial_chars: int) -> bool:
@@ -165,35 +133,34 @@ def _is_thin_reduce_output(*, reduced: DistillOutput, partials: list[DistillOutp
 
 def _coerce_distill(data: Any) -> dict[str, Any]:
     if isinstance(data, dict) and isinstance(data.get("summary"), str) and data["summary"].strip():
-        return {**data, "symbols": _extract_symbols(data)}
+        return data
     if isinstance(data, str):
-        return {"summary": data, "symbols": _symbols_from_text(data)}
+        return {"summary": data}
     if not isinstance(data, dict):
-        text = str(data)
-        return {"summary": text, "symbols": _symbols_from_text(text)}
+        return {"summary": str(data)}
 
     if len(data) == 1:
         inner = next(iter(data.values()))
         if isinstance(inner, dict):
             coerced = _coerce_distill(inner)
             if coerced.get("summary"):
-                return {**coerced, "symbols": _extract_symbols(data) or coerced.get("symbols", [])}
+                return coerced
         if isinstance(inner, str) and inner.strip():
-            return {"summary": inner, "symbols": _symbols_from_text(inner)}
+            return {"summary": inner}
 
     for alt in ("markdown", "document", "content", "text", "body", "summary_markdown"):
         if isinstance(data.get(alt), str) and data[alt].strip():
-            return {**data, "summary": data[alt], "symbols": _extract_symbols(data) or _symbols_from_text(data[alt])}
+            return {**data, "summary": data[alt]}
 
     if data.get("summary") is not None:
         joined = "\n\n".join(_iter_strings(data["summary"]))
         if joined.strip():
-            return {**data, "summary": joined, "symbols": _extract_symbols(data) or _symbols_from_text(joined)}
+            return {**data, "summary": joined}
 
     candidates = list(_iter_strings(data))
     if candidates:
         summary = max(candidates, key=len)
-        return {**data, "summary": summary, "symbols": _extract_symbols(data) or _symbols_from_text(summary)}
+        return {**data, "summary": summary}
     return data
 
 
@@ -205,24 +172,28 @@ def _merge_usage(acc: dict[str, Any], usage: dict[str, Any]) -> None:
 
 def distill(llm_client, text: str, *, max_chunk_chars: int = 6000) -> tuple[DistillOutput, dict[str, Any]]:
     if len(text) <= max_chunk_chars:
+        log.info("distill: single-shot over %d chars", len(text))
         data, usage = llm_client.complete_json(DISTILL_SYSTEM, _user_prompt(text))
         out = DistillOutput.model_validate(_coerce_distill(data))
-        return _enrich_symbols(out, text), usage
+        return out, usage
 
     chunks = _chunks(text, max_chunk_chars)
+    log.info("distill: map/reduce over %d chunks (%d chars total)", len(chunks), len(text))
     partials: list[DistillOutput] = []
     total_usage: dict[str, Any] = {}
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks, 1):
+        log.info("distill: mapping chunk %d/%d (%d chars)", idx, len(chunks), len(chunk))
         data, usage = llm_client.complete_json(DISTILL_SYSTEM, _user_prompt(chunk))
-        partials.append(_enrich_symbols(DistillOutput.model_validate(_coerce_distill(data)), chunk))
+        partials.append(DistillOutput.model_validate(_coerce_distill(data)))
         _merge_usage(total_usage, usage)
 
+    log.info("distill: reducing %d partial summaries", len(partials))
     combined = "\n\n".join(f"### Chunk {idx}\n{(p.summary or '').strip()}" for idx, p in enumerate(partials, 1))
     data, usage = llm_client.complete_json(REDUCE_SYSTEM, _user_prompt(combined))
     _merge_usage(total_usage, usage)
     reduced = DistillOutput.model_validate(_coerce_distill(data))
     total_partial_chars = sum(len((p.summary or "").strip()) for p in partials)
     if _is_thin_reduce_output(reduced=reduced, partials=partials, total_partial_chars=total_partial_chars):
-        log.warning("reduce output looked too thin; using fallback")
+        log.warning("distill: reduce output looked too thin; using map-stage merged fallback")
         reduced = _fallback_from_partials(partials)
-    return _enrich_symbols(reduced, text), total_usage
+    return reduced, total_usage

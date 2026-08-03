@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from app.models.domain import Episode, EpisodeStatus
+from app.models.domain import Episode, EpisodeStatus, WatchlistStatus
 from app.services.discovery import DiscoveryService
 from app.services.distillation import DistillService
 from app.services.transcripts import TranscriptService
@@ -149,7 +149,8 @@ class FakeYouTube:
 
 class FakeLLM:
     def complete_json(self, system, _user):
-        if "market-sentiment classifier" in (system or ""):
+        s = system or ""
+        if "market-sentiment classifier" in s:
             return {
                 "observations": [
                     {
@@ -161,16 +162,46 @@ class FakeLLM:
                     }
                 ]
             }, {"total_tokens": 8}
+        if "extract every company or ticker" in s:
+            return {
+                "entities": [
+                    {
+                        "raw_mention": "Microsoft",
+                        "entity_type": "company",
+                        "company_name": "Microsoft",
+                        "ticker": "MSFT",
+                        "direction": "long",
+                        "confidence": 0.8,
+                        "context": "cloud growth",
+                    }
+                ]
+            }, {"total_tokens": 9}
         return {"summary": "sum mentions $MSFT", "key_topics": ["ai"], "segments": []}, {"total_tokens": 10}
 
 
-class FakeWatchlist:
+class FakeEntityRepo:
     def __init__(self):
-        self.calls = []
+        self.rows = []
+        self.watchlist = []
+        self._seq = 0
 
-    def publish(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"ok": True}
+    def insert(self, e):
+        self._seq += 1
+        self.rows.append(e)
+        return self._seq
+
+    def set_watchlist(self, row_id, status, *, submitted_at=None):
+        self.watchlist.append((row_id, status, submitted_at))
+
+
+class FakeWatchlistApi:
+    def __init__(self, status=WatchlistStatus.submitted):
+        self.calls = []
+        self._status = status
+
+    def submit(self, e, episode):
+        self.calls.append((e, episode))
+        return self._status
 
 
 class FakeSentimentApi:
@@ -291,13 +322,30 @@ class TestDistill:
         assert totals["reprocessed"] == 1
         assert totals["distilled"] == 1
 
-    def test_watchlist_publish(self):
-        watchlist = FakeWatchlist()
-        episodes, svc = self._svc(watchlist_client=watchlist, watchlist_enabled=True)
+    def test_entities_submitted(self):
+        entity_repo = FakeEntityRepo()
+        watchlist = FakeWatchlistApi()
+        episodes, svc = self._svc(
+            entity_repo=entity_repo,
+            watchlist_api=watchlist,
+        )
         e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
         totals = svc.distill_one(e)
-        assert totals["watchlist_sent"] == 1
-        assert watchlist.calls[0]["symbols"] == ["MSFT"]
+        assert totals["entities_submitted"] == 1
+        assert len(watchlist.calls) == 1
+        assert watchlist.calls[0][0].ticker == "MSFT"
+        assert entity_repo.watchlist[0][1] == WatchlistStatus.submitted
+
+    def test_entities_persist_without_watchlist(self):
+        entity_repo = FakeEntityRepo()
+        episodes, svc = self._svc(entity_repo=entity_repo)
+        e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
+        totals = svc.distill_one(e)
+        assert totals["distilled"] == 1
+        assert totals.get("entities_submitted", 0) == 0
+        assert len(entity_repo.rows) == 1
+        assert entity_repo.rows[0].ticker == "MSFT"
+        assert entity_repo.rows[0].watchlist_status == WatchlistStatus.pending
 
     def test_sentiment_publish(self):
         sentiment = FakeSentimentApi()

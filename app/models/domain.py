@@ -15,6 +15,25 @@ class EpisodeStatus(str, Enum):
     skipped = "skipped"
 
 
+class EntityType(str, Enum):
+    ticker = "ticker"
+    company = "company"
+
+
+class Direction(str, Enum):
+    long = "long"
+    short = "short"
+    neutral = "neutral"
+
+
+class WatchlistStatus(str, Enum):
+    pending = "pending"
+    submitted = "submitted"
+    duplicate = "duplicate"
+    failed = "failed"
+    unresolved = "unresolved"
+
+
 class Episode(BaseModel):
     id: int | None = None
     video_id: str
@@ -49,10 +68,28 @@ class Distillation(BaseModel):
     prompt_version: str
     summary: str
     key_topics: list[str] = Field(default_factory=list)
-    symbols: list[str] = Field(default_factory=list)
     segments: list[dict] = Field(default_factory=list)
     token_usage: dict | None = None
     is_current: bool = True
+    created_at: datetime | None = None
+
+
+class ReferencedEntity(BaseModel):
+    id: int | None = None
+    episode_id: int
+    raw_mention: str
+    entity_type: EntityType
+    company_name: str | None = None
+    ticker: str | None = None
+    speaker: str | None = None
+    direction: Direction | None = None
+    confidence: float | None = None
+    context: str | None = None
+    model: str
+    prompt_version: str
+    idempotency_key: str
+    watchlist_status: WatchlistStatus = WatchlistStatus.pending
+    submitted_at: datetime | None = None
     created_at: datetime | None = None
 
 

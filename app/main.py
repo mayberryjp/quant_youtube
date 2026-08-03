@@ -37,6 +37,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from app.routes import entities
+
+    app.merge(entities.sub)
+except ImportError:
+    pass
+
 
 if __name__ == "__main__":
     from waitress import serve

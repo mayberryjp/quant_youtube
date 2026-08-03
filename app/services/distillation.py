@@ -1,12 +1,13 @@
-"""Stage 3: distill fetched transcripts and fan out to watchlist/sentiment."""
+"""Stage 3: distill fetched transcripts and fan out to entities/watchlist and sentiment."""
 
 from __future__ import annotations
 
 import logging
 from collections import Counter
+from datetime import datetime, timezone
 
-from app.models.domain import Distillation, Episode, EpisodeStatus
-from app.services import distiller, sentiment_pass
+from app.models.domain import Distillation, Episode, EpisodeStatus, WatchlistStatus
+from app.services import distiller, entity_pass, sentiment_pass
 
 log = logging.getLogger("quant_allinpodcast.distill")
 
@@ -18,30 +19,30 @@ class DistillService:
         episode_repo,
         distillation_repo,
         llm_client,
-        watchlist_client=None,
+        entity_repo=None,
+        watchlist_api=None,
         sentiment_client=None,
         model: str,
         distill_prompt_version: str,
+        entity_prompt_version: str = "v1",
         sentiment_prompt_version: str = "v1",
         distill_max_chunk_chars: int = 12000,
         max_attempts: int = 5,
-        watchlist_enabled: bool = False,
-        watchlist_fail_on_error: bool = False,
         sentiment_enabled: bool = False,
         sentiment_fail_on_error: bool = False,
     ) -> None:
         self.episodes = episode_repo
         self.distillations = distillation_repo
         self.llm = llm_client
-        self.watchlist = watchlist_client
+        self.entities = entity_repo
+        self.watchlist_api = watchlist_api
         self.sentiment = sentiment_client
         self.model = model
         self.distill_pv = distill_prompt_version
+        self.entity_pv = entity_prompt_version
         self.sentiment_pv = sentiment_prompt_version
         self.distill_max_chunk_chars = distill_max_chunk_chars
         self.max_attempts = max_attempts
-        self.watchlist_enabled = watchlist_enabled
-        self.watchlist_fail_on_error = watchlist_fail_on_error
         self.sentiment_enabled = sentiment_enabled
         self.sentiment_fail_on_error = sentiment_fail_on_error
 
@@ -74,7 +75,6 @@ class DistillService:
                     prompt_version=self.distill_pv,
                     summary=out.summary,
                     key_topics=out.key_topics,
-                    symbols=out.symbols,
                     segments=[s.model_dump() for s in out.segments],
                     token_usage=usage or None,
                 )
@@ -96,22 +96,8 @@ class DistillService:
         return c
 
     def _fanout(self, episode: Episode, out, c: Counter) -> None:
-        if self.watchlist_enabled and self.watchlist and out.symbols:
-            try:
-                self.watchlist.publish(
-                    episode=episode,
-                    symbols=out.symbols,
-                    summary=out.summary,
-                    key_topics=out.key_topics,
-                    model=self.model,
-                    prompt_version=self.distill_pv,
-                )
-                c["watchlist_sent"] += 1
-            except Exception:
-                log.exception("watchlist publish failed for %s", episode.video_id)
-                c["watchlist_failures"] += 1
-                if self.watchlist_fail_on_error:
-                    raise
+        if self.entities is not None:
+            self._deliver_entities(episode, out.summary, c)
 
         if self.sentiment_enabled and self.sentiment:
             try:
@@ -129,6 +115,27 @@ class DistillService:
                 c["sentiment_failures"] += 1
                 if self.sentiment_fail_on_error:
                     raise
+
+    def _deliver_entities(self, episode: Episode, summary: str, c: Counter) -> None:
+        out, _ = entity_pass.extract_entities(self.llm, summary)
+        for row in entity_pass.build_rows(
+            episode, out, model=self.model, prompt_version=self.entity_pv
+        ):
+            row_id = self.entities.insert(row)
+            if row.ticker and self.watchlist_api is not None:
+                status = self.watchlist_api.submit(row, episode)
+                submitted_at = (
+                    datetime.now(timezone.utc)
+                    if status in (WatchlistStatus.submitted, WatchlistStatus.duplicate)
+                    else None
+                )
+                self.entities.set_watchlist(row_id, status, submitted_at=submitted_at)
+                if status in (WatchlistStatus.submitted, WatchlistStatus.duplicate):
+                    c["entities_submitted"] += 1
+                else:
+                    c["watchlist_failures"] += 1
+            elif not row.ticker:
+                self.entities.set_watchlist(row_id, WatchlistStatus.unresolved)
 
     def reprocess(self, episode: Episode) -> Counter:
         """Re-distill an episode that already has a transcript."""

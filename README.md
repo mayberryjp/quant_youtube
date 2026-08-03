@@ -94,15 +94,19 @@ Optional multi-channel discovery:
 
 ## Watchlist API Integration
 
-Ticker extraction now runs as part of distillation and stores symbols with each current distillation row.
+A dedicated entity pass runs after distillation: the LLM extracts every referenced company/ticker
+from the distilled summary, resolves company names to tickers, and each mention is persisted to
+`allin.referenced_entities` (queryable via `GET /entities`). Resolved tickers are submitted per
+entity to a quant_signals-style watchlist API.
 
-To publish extracted symbols to a watchlist API endpoint (quant_cnbc-style), configure:
+Entity extraction and persistence always run. Submission happens whenever a watchlist URL is
+configured (mentions stay `pending` locally otherwise):
 
-- `WATCHLIST_ENABLED=true`
-- `WATCHLIST_API_URL=https://<host>/...`
+- `WATCHLIST_API_URL=https://<host>/signals`
 - `WATCHLIST_API_KEY=<optional bearer token>`
 - `WATCHLIST_SOURCE=quant_allinpodcast` (optional source label)
-- `WATCHLIST_FAIL_ON_ERROR=false` (set `true` to fail ingest when publish fails)
+- `WATCHLIST_SIGNAL_TYPE=allin_mention` (optional signal type label)
+- `ENTITY_PROMPT_VERSION=v1`
 
 
 ## Sentiment API Integration
@@ -118,6 +122,3 @@ To run a separate sentiment pass and deliver quant_sentiment-compatible payloads
 
 
 When enabled, each successfully distilled episode runs a separate structured sentiment pass and sends one `POST /sentiment` per extracted observation.
-
-When enabled, each successfully distilled episode sends one payload containing episode metadata,
-symbols, summary, key topics, model, and prompt version.

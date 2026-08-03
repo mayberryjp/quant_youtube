@@ -126,11 +126,11 @@ class Settings(BaseSettings):
         default=12000,
         validation_alias=AliasChoices("DISTILL_MAX_CHUNK_CHARS"),
     )
-
-    watchlist_enabled: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("WATCHLIST_ENABLED"),
+    entity_prompt_version: str = Field(
+        default="v1",
+        validation_alias=AliasChoices("ENTITY_PROMPT_VERSION"),
     )
+
     watchlist_api_url: str = Field(
         default="",
         validation_alias=AliasChoices("WATCHLIST_API_URL"),
@@ -147,9 +147,9 @@ class Settings(BaseSettings):
         default="quant_allinpodcast",
         validation_alias=AliasChoices("WATCHLIST_SOURCE"),
     )
-    watchlist_fail_on_error: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("WATCHLIST_FAIL_ON_ERROR"),
+    watchlist_signal_type: str = Field(
+        default="allin_mention",
+        validation_alias=AliasChoices("WATCHLIST_SIGNAL_TYPE"),
     )
 
     sentiment_enabled: bool = Field(

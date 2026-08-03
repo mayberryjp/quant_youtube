@@ -6,10 +6,10 @@ from app import db, dependencies as deps
 from app.config import settings
 from app.services.discovery import DiscoveryService
 from app.services.distillation import DistillService
+from app.services.entity_pass import WatchlistApiClient
 from app.services.llm_client import LLMClient
 from app.services.sentiment_pass import SentimentApiClient
 from app.services.transcripts import TranscriptService
-from app.services.watchlist_client import WatchlistClient
 from app.services.youtube_client import YouTubeClient
 
 
@@ -26,13 +26,16 @@ def _youtube() -> YouTubeClient:
     )
 
 
-def _watchlist() -> WatchlistClient | None:
-    if settings.watchlist_enabled and settings.watchlist_api_url:
-        return WatchlistClient(
-            api_url=settings.watchlist_api_url,
+def _watchlist() -> WatchlistApiClient | None:
+    if settings.watchlist_api_url:
+        return WatchlistApiClient(
+            url=settings.watchlist_api_url,
             api_key=settings.watchlist_api_key,
             source=settings.watchlist_source,
+            signal_type=settings.watchlist_signal_type,
             timeout=settings.watchlist_timeout,
+            retries=settings.http_retries,
+            backoff=settings.retry_backoff,
         )
     return None
 
@@ -87,16 +90,16 @@ def build_distill_service(engine=None) -> DistillService:
     return DistillService(
         episode_repo=deps.episode_repo(engine),
         distillation_repo=deps.distillation_repo(engine),
+        entity_repo=deps.entity_repo(engine),
         llm_client=_llm(),
-        watchlist_client=_watchlist(),
+        watchlist_api=_watchlist(),
         sentiment_client=_sentiment(),
         model=settings.llm_model,
         distill_prompt_version=settings.distill_prompt_version,
+        entity_prompt_version=settings.entity_prompt_version,
         sentiment_prompt_version=settings.sentiment_prompt_version,
         distill_max_chunk_chars=settings.distill_max_chunk_chars,
         max_attempts=settings.max_attempts,
-        watchlist_enabled=settings.watchlist_enabled,
-        watchlist_fail_on_error=settings.watchlist_fail_on_error,
         sentiment_enabled=settings.sentiment_enabled,
         sentiment_fail_on_error=settings.sentiment_fail_on_error,
     )

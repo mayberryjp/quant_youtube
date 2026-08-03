@@ -21,7 +21,6 @@ class TestDistiller:
         )
         out, usage = distill(llm, "short transcript")
         assert out.summary == "buy $AAPL and monitor Berkshire (BRK.B)"
-        assert out.symbols == ["AAPL", "BRK.B"]
         assert llm.calls == 1
         assert usage["total_tokens"] == 10
 
