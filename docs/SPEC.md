@@ -204,7 +204,7 @@ Tracks discovery, transcript retrieval, and per-episode processing state.
 Indexes:
 
 1. Unique on `video_id`
-2. Unique on `content_hash` where non-null for secondary dedup
+2. Non-unique index on `content_hash` where non-null for transcript fingerprint lookups
 3. Index on `(status, published_at desc)`
 4. Index on `published_at`
 

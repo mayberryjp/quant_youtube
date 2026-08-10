@@ -29,4 +29,4 @@ Schema: allin
 
 - episodes status + published_at
 - episodes published_at
-- optional unique content_hash index where present
+- optional non-unique content_hash index where present

@@ -80,7 +80,7 @@ def upgrade() -> None:
         """
     )
 
-    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_allin_episode_content_hash ON allin.episodes(content_hash) WHERE content_hash IS NOT NULL")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_allin_episode_content_hash ON allin.episodes(content_hash) WHERE content_hash IS NOT NULL")
     op.execute("CREATE INDEX IF NOT EXISTS ix_allin_episode_status_published ON allin.episodes(status, published_at DESC)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_allin_episode_published ON allin.episodes(published_at)")
 
