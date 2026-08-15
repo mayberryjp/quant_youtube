@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from bottle import Bottle
+from bottle import Bottle, response
 
 from app.config import settings
 from app.routes import health
@@ -21,6 +21,20 @@ logging.basicConfig(
 )
 
 app = Bottle()
+
+
+@app.hook("after_request")
+def _enable_cors() -> None:
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+
+
+@app.route("/<:path>", method="OPTIONS")
+def _cors_preflight(path: str = "") -> str:
+    return ""
+
+
 app.merge(health.sub)
 
 try:
