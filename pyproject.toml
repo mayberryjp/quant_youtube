@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "quant_allinpodcast"
 version = "0.1.0"
-description = "All-In Podcast transcript ingestion and Ollama distillation service"
+description = "All-In Podcast transcript ingestion worker for quant_distill"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

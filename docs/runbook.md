@@ -2,7 +2,7 @@
 
 ## Local Setup
 
-1. Copy .env.example to .env and adjust values.
+1. Set required environment variables such as `TRANSCRIPTAPI_KEY`, or provide them in `.env`.
 2. Install dependencies:
    - py -m pip install -e ".[dev]"
 3. Run tests:
@@ -31,6 +31,9 @@
 ## Container Mode
 
 - docker compose up --build
+
+Docker image defaults are declared in `Dockerfile`. Use shell variables or an optional `.env` file
+to override them at runtime, especially for credentials.
 
 Supervisord starts:
 - alembic migration

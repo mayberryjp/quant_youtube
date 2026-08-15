@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("transcriptapi key     : %s", _mask(settings.transcriptapi_api_key))
     log.info("transcriptapi base    : %s", settings.transcriptapi_base_url)
     log.info("language preference   : %s", settings.transcript_language_preference)
-    log.info("timeout / retries     : %ss / %s", settings.llm_timeout, settings.http_retries)
+    log.info("timeout / retries     : %ss / %s", settings.transcriptapi_timeout, settings.http_retries)
 
     if not settings.transcriptapi_api_key:
         log.error(

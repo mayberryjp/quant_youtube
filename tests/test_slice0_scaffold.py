@@ -15,7 +15,7 @@ class TestScaffold:
         assert settings.api_port == 8022
         assert settings.transcriptapi_base_url == "https://transcriptapi.com/api/v2"
         assert settings.youtube_channel_handle == "allin"
-        assert settings.llm_model == "llama3.1:8b"
+        assert settings.distill_api_url == "http://quant-distill:8021"
 
     def test_transcript_language_parsing(self):
         from app.config import Settings

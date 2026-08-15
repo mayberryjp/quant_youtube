@@ -9,7 +9,7 @@ from app.models.domain import Distillation
 
 _COLUMNS = (
     "id, episode_id, model, prompt_version, summary, key_topics, "
-    "segments, token_usage, is_current, created_at"
+    "segments, token_usage, request_payload, response_payload, request_id, is_current, created_at"
 )
 
 
@@ -26,6 +26,8 @@ def _row_to_distillation(row: dict) -> Distillation:
     data["key_topics"] = _loads(data.get("key_topics"), [])
     data["segments"] = _loads(data.get("segments"), [])
     data["token_usage"] = _loads(data.get("token_usage"), None)
+    data["request_payload"] = _loads(data.get("request_payload"), {})
+    data["response_payload"] = _loads(data.get("response_payload"), {})
     return Distillation.model_validate(data)
 
 
@@ -43,18 +45,23 @@ class DistillationRepository:
                 text(
                     """
                     INSERT INTO allin.distillations
-                        (episode_id, model, prompt_version, summary, key_topics, segments, token_usage, is_current)
+                        (episode_id, model, prompt_version, summary, key_topics, segments, token_usage,
+                         request_payload, response_payload, request_id, is_current)
                     VALUES
-                        (:episode_id, :model, :prompt_version, :summary, :key_topics, :segments, :token_usage, true)
+                        (:episode_id, :model, :prompt_version, :summary, :key_topics, :segments, :token_usage,
+                         :request_payload, :response_payload, :request_id, true)
                     ON CONFLICT (episode_id, model, prompt_version) DO UPDATE SET
                         summary = excluded.summary,
                         key_topics = excluded.key_topics,
                         segments = excluded.segments,
                         token_usage = excluded.token_usage,
+                        request_payload = excluded.request_payload,
+                        response_payload = excluded.response_payload,
+                        request_id = excluded.request_id,
                         is_current = true,
                         created_at = CURRENT_TIMESTAMP
-                    RETURNING id, episode_id, model, prompt_version, summary, key_topics,
-                              segments, token_usage, is_current, created_at
+                    RETURNING id, episode_id, model, prompt_version, summary, key_topics, segments,
+                              token_usage, request_payload, response_payload, request_id, is_current, created_at
                     """
                 ),
                 {
@@ -65,6 +72,9 @@ class DistillationRepository:
                     "key_topics": json.dumps(d.key_topics),
                     "segments": json.dumps(d.segments),
                     "token_usage": json.dumps(d.token_usage) if d.token_usage is not None else None,
+                    "request_payload": json.dumps(d.request_payload),
+                    "response_payload": json.dumps(d.response_payload),
+                    "request_id": d.request_id,
                 },
             ).mappings().first()
         return _row_to_distillation(row)

@@ -9,7 +9,6 @@ class ReprocessRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     from_date: date | None = None
     to_date: date | None = None
-    only_stale: bool = False
 
 
 class RetryFailedRequest(BaseModel):

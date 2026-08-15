@@ -32,25 +32,10 @@ class DistillationResponse(BaseModel):
     key_topics: list[str] = []
     segments: list[dict[str, Any]] = []
     token_usage: dict[str, Any] | None = None
+    request_payload: dict[str, Any] = {}
+    response_payload: dict[str, Any] = {}
+    request_id: str | None = None
     is_current: bool = True
-    created_at: datetime | None = None
-
-
-class EntityResponse(BaseModel):
-    id: int
-    episode_id: int
-    raw_mention: str
-    entity_type: str
-    company_name: str | None = None
-    ticker: str | None = None
-    speaker: str | None = None
-    direction: str | None = None
-    confidence: float | None = None
-    context: str | None = None
-    model: str
-    prompt_version: str
-    watchlist_status: str
-    submitted_at: datetime | None = None
     created_at: datetime | None = None
 
 

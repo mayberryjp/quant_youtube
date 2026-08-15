@@ -12,7 +12,8 @@ Schema: allin
 2. allin.distillations
 - Versioned distillation outputs by episode_id + model + prompt_version
 - Maintains a current version marker via is_current
-- Stores summary, key_topics, symbols, segments, and token_usage
+- Stores normalized summary fields plus token usage
+- Stores the complete `quant_distill` request and response JSON and upstream request ID
 
 3. allin.ingest_runs
 - One row per run_date for worker execution tracking

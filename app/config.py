@@ -89,96 +89,26 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("TRANSCRIPTAPI_KEY", "TRANSCRIPT_API_KEY"),
     )
-
-    llm_base_url: str = Field(
-        default="http://ollama:11434/v1",
-        validation_alias=AliasChoices("LLM_BASE_URL"),
-    )
-    llm_model: str = Field(
-        default="llama3.1:8b",
-        validation_alias=AliasChoices("LLM_MODEL"),
-    )
-    llm_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("LLM_API_KEY"),
-    )
-    llm_timeout: int = Field(
+    transcriptapi_timeout: int = Field(
         default=120,
-        validation_alias=AliasChoices("LLM_TIMEOUT"),
+        validation_alias=AliasChoices("TRANSCRIPTAPI_TIMEOUT"),
     )
-    llm_json_mode: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("LLM_JSON_MODE"),
+
+    distill_api_url: str = Field(
+        default="http://quant-distill:8021",
+        validation_alias=AliasChoices("DISTILL_API_URL"),
     )
-    llm_num_ctx: int = Field(
-        default=8192,
-        validation_alias=AliasChoices("LLM_NUM_CTX"),
+    distill_api_timeout: int = Field(
+        default=180,
+        validation_alias=AliasChoices("DISTILL_API_TIMEOUT"),
     )
-    llm_max_tokens: int = Field(
-        default=4096,
-        validation_alias=AliasChoices("LLM_MAX_TOKENS"),
-    )
-    distill_prompt_version: str = Field(
-        default="v1",
-        validation_alias=AliasChoices("DISTILL_PROMPT_VERSION"),
+    distill_source: str = Field(
+        default="quant_allinpodcast",
+        validation_alias=AliasChoices("DISTILL_SOURCE"),
     )
     distill_max_chunk_chars: int = Field(
         default=12000,
         validation_alias=AliasChoices("DISTILL_MAX_CHUNK_CHARS"),
-    )
-    entity_prompt_version: str = Field(
-        default="v1",
-        validation_alias=AliasChoices("ENTITY_PROMPT_VERSION"),
-    )
-
-    watchlist_api_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("WATCHLIST_API_URL"),
-    )
-    watchlist_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("WATCHLIST_API_KEY"),
-    )
-    watchlist_timeout: int = Field(
-        default=15,
-        validation_alias=AliasChoices("WATCHLIST_TIMEOUT"),
-    )
-    watchlist_source: str = Field(
-        default="quant_allinpodcast",
-        validation_alias=AliasChoices("WATCHLIST_SOURCE"),
-    )
-    watchlist_signal_type: str = Field(
-        default="allin_mention",
-        validation_alias=AliasChoices("WATCHLIST_SIGNAL_TYPE"),
-    )
-
-    sentiment_enabled: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("SENTIMENT_ENABLED"),
-    )
-    sentiment_api_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("SENTIMENT_API_URL"),
-    )
-    sentiment_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("SENTIMENT_API_KEY"),
-    )
-    sentiment_timeout: int = Field(
-        default=30,
-        validation_alias=AliasChoices("SENTIMENT_TIMEOUT"),
-    )
-    sentiment_source: str = Field(
-        default="quant_allinpodcast",
-        validation_alias=AliasChoices("SENTIMENT_SOURCE"),
-    )
-    sentiment_prompt_version: str = Field(
-        default="v1",
-        validation_alias=AliasChoices("SENTIMENT_PROMPT_VERSION"),
-    )
-    sentiment_fail_on_error: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("SENTIMENT_FAIL_ON_ERROR"),
     )
 
     http_retries: int = Field(

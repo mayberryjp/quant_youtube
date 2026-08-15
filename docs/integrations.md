@@ -15,9 +15,10 @@
 - Normalizes transcript text for deterministic hashing
 - Saves transcript language and source type (`transcriptapi`) with each episode
 
-## LLM Distillation
+## Shared Distillation
 
-- OpenAI-compatible chat completion endpoint (Ollama default)
-- Requests JSON object output for summary, key_topics, segments
-- Handles long transcripts with map/reduce chunking
-- Includes fallback behavior when reduce output is too thin
+- Provider: `quant_distill` `POST /v1/process`
+- Sends the complete transcript with stable YouTube identity and source metadata
+- Requests distillation, sentiment, entity extraction, and optional downstream delivery in one call
+- Retries transport errors and `5xx` responses with bounded exponential backoff
+- Persists the exact request and authoritative response locally

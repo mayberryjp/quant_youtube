@@ -1,13 +1,11 @@
-"""Stage 3: distill fetched transcripts and fan out to entities/watchlist and sentiment."""
+"""Stage 3: submit fetched transcripts to the shared distillation API."""
 
 from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import datetime, timezone
 
-from app.models.domain import Distillation, Episode, EpisodeStatus, WatchlistStatus
-from app.services import distiller, entity_pass, sentiment_pass
+from app.models.domain import Distillation, Episode, EpisodeStatus
 
 log = logging.getLogger("quant_allinpodcast.distill")
 
@@ -18,33 +16,17 @@ class DistillService:
         *,
         episode_repo,
         distillation_repo,
-        llm_client,
-        entity_repo=None,
-        watchlist_api=None,
-        sentiment_client=None,
-        model: str,
-        distill_prompt_version: str,
-        entity_prompt_version: str = "v1",
-        sentiment_prompt_version: str = "v1",
+        distill_api,
+        source: str = "quant_allinpodcast",
         distill_max_chunk_chars: int = 12000,
         max_attempts: int = 5,
-        sentiment_enabled: bool = False,
-        sentiment_fail_on_error: bool = False,
     ) -> None:
         self.episodes = episode_repo
         self.distillations = distillation_repo
-        self.llm = llm_client
-        self.entities = entity_repo
-        self.watchlist_api = watchlist_api
-        self.sentiment = sentiment_client
-        self.model = model
-        self.distill_pv = distill_prompt_version
-        self.entity_pv = entity_prompt_version
-        self.sentiment_pv = sentiment_prompt_version
+        self.distill_api = distill_api
+        self.source = source
         self.distill_max_chunk_chars = distill_max_chunk_chars
         self.max_attempts = max_attempts
-        self.sentiment_enabled = sentiment_enabled
-        self.sentiment_fail_on_error = sentiment_fail_on_error
 
     def run(self, *, limit: int = 200) -> Counter:
         totals: Counter = Counter()
@@ -63,23 +45,24 @@ class DistillService:
         c: Counter = Counter()
         vid = episode.video_id
         try:
-            out, usage = distiller.distill(
-                self.llm,
-                episode.raw_text or "",
-                max_chunk_chars=self.distill_max_chunk_chars,
-            )
+            payload = self._build_payload(episode)
+            response = self.distill_api.process(payload)
+            artifact = response["distillation"]
+            processing = response.get("processing") or {}
             self.distillations.upsert(
                 Distillation(
                     episode_id=episode.id,
-                    model=self.model,
-                    prompt_version=self.distill_pv,
-                    summary=out.summary,
-                    key_topics=out.key_topics,
-                    segments=[s.model_dump() for s in out.segments],
-                    token_usage=usage or None,
+                    model=processing.get("model") or "unknown",
+                    prompt_version=processing.get("distill_prompt_version") or "unknown",
+                    summary=artifact.get("summary") or "",
+                    key_topics=artifact.get("key_topics") or [],
+                    segments=artifact.get("segments") or [],
+                    token_usage=processing.get("token_usage"),
+                    request_payload=payload,
+                    response_payload=response,
+                    request_id=response.get("request_id"),
                 )
             )
-            self._fanout(episode, out, c)
             self.episodes.set_status(episode.id, EpisodeStatus.done)
             self.episodes.touch_stage(episode.id, "distilled")
             c["distilled"] += 1
@@ -95,47 +78,32 @@ class DistillService:
             c["failures"] += 1
         return c
 
-    def _fanout(self, episode: Episode, out, c: Counter) -> None:
-        if self.entities is not None:
-            self._deliver_entities(episode, out.summary, c)
-
-        if self.sentiment_enabled and self.sentiment:
-            try:
-                sent_out, _ = sentiment_pass.extract_sentiment(self.llm, out.summary)
-                for obs in sent_out.observations:
-                    ok, _sid = self.sentiment.deliver(
-                        obs,
-                        episode,
-                        model=self.model,
-                        prompt_version=self.sentiment_pv,
-                    )
-                    c["sentiments_sent" if ok else "sentiment_failures"] += 1
-            except Exception:
-                log.exception("sentiment publish failed for %s", episode.video_id)
-                c["sentiment_failures"] += 1
-                if self.sentiment_fail_on_error:
-                    raise
-
-    def _deliver_entities(self, episode: Episode, summary: str, c: Counter) -> None:
-        out, _ = entity_pass.extract_entities(self.llm, summary)
-        for row in entity_pass.build_rows(
-            episode, out, model=self.model, prompt_version=self.entity_pv
-        ):
-            row_id = self.entities.insert(row)
-            if row.ticker and self.watchlist_api is not None:
-                status = self.watchlist_api.submit(row, episode)
-                submitted_at = (
-                    datetime.now(timezone.utc)
-                    if status in (WatchlistStatus.submitted, WatchlistStatus.duplicate)
-                    else None
-                )
-                self.entities.set_watchlist(row_id, status, submitted_at=submitted_at)
-                if status in (WatchlistStatus.submitted, WatchlistStatus.duplicate):
-                    c["entities_submitted"] += 1
-                else:
-                    c["watchlist_failures"] += 1
-            elif not row.ticker:
-                self.entities.set_watchlist(row_id, WatchlistStatus.unresolved)
+    def _build_payload(self, episode: Episode) -> dict:
+        payload = {
+            "source": self.source,
+            "source_type": "youtube",
+            "source_item_id": episode.video_id,
+            "title": episode.title,
+            "text": episode.raw_text or "",
+            "metadata": {
+                "url": episode.source_url,
+                "channel": episode.channel_slug,
+                "thumbnail_url": episode.thumbnail_url,
+                "description": episode.description,
+                "transcript_language": episode.transcript_language,
+                "transcript_source": episode.transcript_source,
+            },
+            "options": {
+                "include_sentiment": True,
+                "include_entities": True,
+                "include_watchlist": True,
+                "watchlist_required": False,
+                "max_chunk_chars": self.distill_max_chunk_chars,
+            },
+        }
+        if episode.published_at is not None:
+            payload["observed_at"] = episode.published_at.isoformat()
+        return payload
 
     def reprocess(self, episode: Episode) -> Counter:
         """Re-distill an episode that already has a transcript."""

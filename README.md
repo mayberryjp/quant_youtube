@@ -1,6 +1,6 @@
 # quant_allinpodcast
 
-All-In Podcast transcript ingestion and Ollama distillation service.
+All-In Podcast transcript ingestion worker for the shared `quant_distill` API.
 
 ## Status
 
@@ -50,7 +50,6 @@ curl http://localhost:8022/allin/health
 - POST /reprocess
 - POST /retry-failed
 - POST /runs/trigger
-- GET /entities
 - GET /jobs/{id}
 
 ## Workers
@@ -60,7 +59,7 @@ Three independent stages, each its own process:
 ```powershell
 py -m app.workers.discover --once      # crawl channels -> insert episodes (logs an ingest_runs row)
 py -m app.workers.transcript --once    # download transcripts for discovered episodes
-py -m app.workers.distill --once       # distill fetched transcripts
+py -m app.workers.distill --once       # send fetched transcripts to quant_distill
 ```
 
 Retry failed transcript fetches:
@@ -95,33 +94,19 @@ Optional multi-channel discovery:
 	- `slug=id:UCxxxxxxxx` (custom slug + channel ID)
 
 
-## Watchlist API Integration
+## Distillation API Integration
 
-A dedicated entity pass runs after distillation: the LLM extracts every referenced company/ticker
-from the distilled summary, resolves company names to tickers, and each mention is persisted to
-`allin.referenced_entities` (queryable via `GET /entities`). Resolved tickers are submitted per
-entity to a quant_signals-style watchlist API.
+Each fetched transcript is sent once to `POST {DISTILL_API_URL}/v1/process`. The shared service
+owns distillation, sentiment, entity extraction, and downstream delivery. This worker does not call
+those downstream APIs directly.
 
-Entity extraction and persistence always run. Submission happens whenever a watchlist URL is
-configured (mentions stay `pending` locally otherwise):
+Configuration:
 
-- `WATCHLIST_API_URL=https://<host>/signals`
-- `WATCHLIST_API_KEY=<optional bearer token>`
-- `WATCHLIST_SOURCE=quant_allinpodcast` (optional source label)
-- `WATCHLIST_SIGNAL_TYPE=allin_mention` (optional signal type label)
-- `ENTITY_PROMPT_VERSION=v1`
+- `DISTILL_API_URL` (default `http://quant-distill:8021`)
+- `DISTILL_API_TIMEOUT` (default `180` seconds)
+- `DISTILL_SOURCE` (default `quant_allinpodcast`)
+- `DISTILL_MAX_CHUNK_CHARS` (default `12000`)
 
-
-## Sentiment API Integration
-
-To run a separate sentiment pass and deliver quant_sentiment-compatible payloads, configure:
-
-- `SENTIMENT_ENABLED=true`
-- `SENTIMENT_API_URL=https://<host>/sentiment`
-- `SENTIMENT_API_KEY=<optional bearer token>`
-- `SENTIMENT_SOURCE=quant_allinpodcast`
-- `SENTIMENT_PROMPT_VERSION=v1`
-- `SENTIMENT_FAIL_ON_ERROR=false` (set `true` to fail ingest when delivery fails)
-
-
-When enabled, each successfully distilled episode runs a separate structured sentiment pass and sends one `POST /sentiment` per extracted observation.
+The source transcript remains in `allin.episodes.raw_text`. The complete process request and
+authoritative response are stored in `allin.distillations.request_payload` and
+`allin.distillations.response_payload`; normalized summary fields remain available for list APIs.

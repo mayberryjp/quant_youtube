@@ -1,39 +1,50 @@
 from __future__ import annotations
 
-from app.services.distiller import distill
+import httpx
+
+from app.services.distill_api import DistillApiClient
 
 
-class FakeLLM:
-    def __init__(self, outputs):
-        self.outputs = outputs
-        self.calls = 0
+class FakeHttpClient:
+    def __init__(self, body, status_code=200):
+        self.body = body
+        self.status_code = status_code
+        self.calls = []
 
-    def complete_json(self, _system, _user):
-        out = self.outputs[self.calls]
-        self.calls += 1
-        return out, {"total_tokens": 10, "completion_chars": 5}
-
-
-class TestDistiller:
-    def test_single_pass(self):
-        llm = FakeLLM(
-            [{"summary": "buy $AAPL and monitor Berkshire (BRK.B)", "key_topics": ["apple"], "segments": []}]
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return httpx.Response(
+            self.status_code,
+            json=self.body,
+            request=httpx.Request("POST", url),
         )
-        out, usage = distill(llm, "short transcript")
-        assert out.summary == "buy $AAPL and monitor Berkshire (BRK.B)"
-        assert llm.calls == 1
-        assert usage["total_tokens"] == 10
 
-    def test_map_reduce(self):
-        llm = FakeLLM(
-            [
-                {"summary": "part1", "key_topics": [], "segments": []},
-                {"summary": "part2", "key_topics": [], "segments": []},
-                {"summary": "combined", "key_topics": ["x"], "segments": []},
-            ]
+
+class TestDistillApiClient:
+    def test_posts_process_payload(self):
+        body = {
+            "status": "ok",
+            "request_id": "request-1",
+            "distillation": {"summary": "summary", "key_topics": [], "segments": []},
+        }
+        http = FakeHttpClient(body)
+        client = DistillApiClient(base_url="http://distill.local/", client=http)
+        payload = {"source": "quant_allinpodcast", "text": "transcript"}
+
+        assert client.process(payload) == body
+        assert http.calls == [
+            ("http://distill.local/v1/process", {"json": payload, "timeout": 180})
+        ]
+
+    def test_rejects_invalid_success_response(self):
+        client = DistillApiClient(
+            base_url="http://distill.local",
+            client=FakeHttpClient({"status": "ok"}),
         )
-        out, usage = distill(llm, "x" * 25, max_chunk_chars=13)
-        assert "Chunk 1" in out.summary
-        assert "Chunk 2" in out.summary
-        assert llm.calls == 3
-        assert usage["total_tokens"] == 30
+
+        try:
+            client.process({"text": "transcript"})
+        except ValueError as exc:
+            assert "invalid process response" in str(exc)
+        else:
+            raise AssertionError("expected invalid response to fail")

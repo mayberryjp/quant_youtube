@@ -150,9 +150,6 @@ def reprocess_bulk():
     candidates = service.reprocess_candidates(
         from_date=body.from_date,
         to_date=body.to_date,
-        only_stale=body.only_stale,
-        current_model=settings.llm_model,
-        current_prompt=settings.distill_prompt_version,
     )
 
     def _job():

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import date
 
-from app.models.domain import Episode, EpisodeStatus, WatchlistStatus
+from app.models.domain import Episode, EpisodeStatus
 from app.services.discovery import DiscoveryService
 from app.services.distillation import DistillService
+from app.services import factory
 from app.services.transcripts import TranscriptService
 from app.services.youtube_client import TranscriptRateLimited
 
@@ -147,70 +149,32 @@ class FakeYouTube:
         }
 
 
-class FakeLLM:
-    def complete_json(self, system, _user):
-        s = system or ""
-        if "market-sentiment classifier" in s:
-            return {
-                "observations": [
-                    {
-                        "subject_type": "ticker",
-                        "subject": "MSFT",
-                        "sentiment_label": "bullish",
-                        "sentiment_score": 0.6,
-                        "confidence": 0.7,
-                    }
-                ]
-            }, {"total_tokens": 8}
-        if "extract every company or ticker" in s:
-            return {
-                "entities": [
-                    {
-                        "raw_mention": "Microsoft",
-                        "entity_type": "company",
-                        "company_name": "Microsoft",
-                        "ticker": "MSFT",
-                        "direction": "long",
-                        "confidence": 0.8,
-                        "context": "cloud growth",
-                    }
-                ]
-            }, {"total_tokens": 9}
-        return {"summary": "sum mentions $MSFT", "key_topics": ["ai"], "segments": []}, {"total_tokens": 10}
-
-
-class FakeEntityRepo:
-    def __init__(self):
-        self.rows = []
-        self.watchlist = []
-        self._seq = 0
-
-    def insert(self, e):
-        self._seq += 1
-        self.rows.append(e)
-        return self._seq
-
-    def set_watchlist(self, row_id, status, *, submitted_at=None):
-        self.watchlist.append((row_id, status, submitted_at))
-
-
-class FakeWatchlistApi:
-    def __init__(self, status=WatchlistStatus.submitted):
+class FakeDistillApi:
+    def __init__(self, error=None):
         self.calls = []
-        self._status = status
+        self.error = error
 
-    def submit(self, e, episode):
-        self.calls.append((e, episode))
-        return self._status
-
-
-class FakeSentimentApi:
-    def __init__(self):
-        self.calls = []
-
-    def deliver(self, obs, episode, *, model, prompt_version):
-        self.calls.append((obs, episode, model, prompt_version))
-        return True, "sentiment:1"
+    def process(self, payload):
+        self.calls.append(payload)
+        if self.error:
+            raise self.error
+        return {
+            "status": "ok",
+            "request_id": "request-1",
+            "processing": {
+                "model": "m1",
+                "distill_prompt_version": "v1",
+                "token_usage": {"total_tokens": 10},
+                "warnings": [],
+            },
+            "distillation": {
+                "summary": "sum mentions $MSFT",
+                "key_topics": ["ai"],
+                "segments": [],
+            },
+            "sentiment": {"observations": []},
+            "entities": {"items": []},
+        }
 
 
 class TestDiscovery:
@@ -299,62 +263,65 @@ class TestTranscripts:
 class TestDistill:
     def _svc(self, episodes=None, **kwargs):
         episodes = episodes or FakeEpisodeRepo()
+        api = kwargs.pop("distill_api", FakeDistillApi())
+        repo = FakeDistRepo()
         return episodes, DistillService(
             episode_repo=episodes,
-            distillation_repo=FakeDistRepo(),
-            llm_client=FakeLLM(),
-            model="m1",
-            distill_prompt_version="v1",
+            distillation_repo=repo,
+            distill_api=api,
             **kwargs,
-        )
+        ), api, repo
 
     def test_fetched_to_done(self):
-        episodes, svc = self._svc()
+        episodes, svc, api, repo = self._svc()
         e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="raw")
         totals = svc.run()
         assert totals["distilled"] == 1
         assert episodes.get_by_id(e.id).status == EpisodeStatus.done
+        assert api.calls[0]["source_item_id"] == "abcdefghijk"
+        assert api.calls[0]["text"] == "raw"
+        assert repo.rows[e.id].request_payload == api.calls[0]
+        assert repo.rows[e.id].response_payload["request_id"] == "request-1"
 
     def test_reprocess(self):
-        episodes, svc = self._svc()
+        episodes, svc, _, _ = self._svc()
         e = episodes.add("abcdefghijk", status=EpisodeStatus.done, raw_text="raw")
         totals = svc.reprocess(e)
         assert totals["reprocessed"] == 1
         assert totals["distilled"] == 1
 
-    def test_entities_submitted(self):
-        entity_repo = FakeEntityRepo()
-        watchlist = FakeWatchlistApi()
-        episodes, svc = self._svc(
-            entity_repo=entity_repo,
-            watchlist_api=watchlist,
-        )
-        e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
+    def test_api_failure_marks_episode_failed(self):
+        api = FakeDistillApi(error=RuntimeError("distill unavailable"))
+        episodes, svc, _, _ = self._svc(distill_api=api)
+        e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="raw")
         totals = svc.distill_one(e)
-        assert totals["entities_submitted"] == 1
-        assert len(watchlist.calls) == 1
-        assert watchlist.calls[0][0].ticker == "MSFT"
-        assert entity_repo.watchlist[0][1] == WatchlistStatus.submitted
+        assert totals["failures"] == 1
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.failed
+        assert episodes.get_by_id(e.id).attempts == 1
 
-    def test_entities_persist_without_watchlist(self):
-        entity_repo = FakeEntityRepo()
-        episodes, svc = self._svc(entity_repo=entity_repo)
-        e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
-        totals = svc.distill_one(e)
-        assert totals["distilled"] == 1
-        assert totals.get("entities_submitted", 0) == 0
-        assert len(entity_repo.rows) == 1
-        assert entity_repo.rows[0].ticker == "MSFT"
-        assert entity_repo.rows[0].watchlist_status == WatchlistStatus.pending
 
-    def test_sentiment_publish(self):
-        sentiment = FakeSentimentApi()
-        episodes, svc = self._svc(
-            sentiment_client=sentiment,
-            sentiment_enabled=True,
-            sentiment_prompt_version="v1",
-        )
-        e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="talking about $MSFT")
-        totals = svc.distill_one(e)
-        assert totals["sentiments_sent"] == 1
-        assert len(sentiment.calls) == 1
+def test_run_all_once_records_complete_ingestion(monkeypatch):
+    runs = FakeRunRepo()
+
+    class Service:
+        def __init__(self, result):
+            self.result = result
+
+        def run(self, **_kwargs):
+            return self.result
+
+    monkeypatch.setattr(factory.db, "get_engine", lambda: object())
+    monkeypatch.setattr(factory, "build_discovery_service", lambda _engine: Service(2))
+    monkeypatch.setattr(
+        factory, "build_transcript_service", lambda _engine: Service(Counter(transcripts_fetched=2))
+    )
+    monkeypatch.setattr(
+        factory, "build_distill_service", lambda _engine: Service(Counter(distilled=1, failures=1))
+    )
+    monkeypatch.setattr(factory.deps, "run_repo", lambda _engine: runs)
+
+    result = factory.run_all_once(date(2026, 8, 14))
+
+    assert result == {"episodes_discovered": 2, "transcripts_fetched": 2, "distilled": 1, "failures": 1}
+    assert runs.counters == Counter(transcripts_fetched=2, distilled=1, failures=1)
+    assert runs.finished == ("partial", result)
