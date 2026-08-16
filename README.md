@@ -1,6 +1,6 @@
-# quant_allinpodcast
+# youtube
 
-All-In Podcast transcript ingestion worker for the shared `quant_distill` API.
+YouTube transcript ingestion worker for the shared `quant_distill` API.
 
 ## Status
 
@@ -104,7 +104,7 @@ Configuration:
 
 - `DISTILL_API_URL` (default `http://quant-distill:8021`)
 - `DISTILL_API_TIMEOUT` (default `3600` seconds)
-- `DISTILL_SOURCE` (default `quant_allinpodcast`)
+- `DISTILL_SOURCE` (default `youtube`)
 - `DISTILL_MAX_CHUNK_CHARS` (default `12000`)
 
 The source transcript remains in `allin.episodes.raw_text`. The complete process request and

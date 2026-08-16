@@ -8,7 +8,7 @@ from collections import Counter
 from app.models.domain import Episode, EpisodeStatus
 from app.services.youtube_client import TranscriptRateLimited, content_hash
 
-log = logging.getLogger("quant_allinpodcast.transcripts")
+log = logging.getLogger("youtube.transcripts")
 
 
 class TranscriptService:

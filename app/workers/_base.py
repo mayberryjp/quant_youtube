@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-log = logging.getLogger("quant_allinpodcast.worker")
+log = logging.getLogger("youtube.worker")
 
 
 def configure_logging(verbose: bool = False) -> None:

@@ -104,7 +104,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DISTILL_API_TIMEOUT"),
     )
     distill_source: str = Field(
-        default="quant_allinpodcast",
+        default="youtube",
         validation_alias=AliasChoices("DISTILL_SOURCE"),
     )
     distill_max_chunk_chars: int = Field(

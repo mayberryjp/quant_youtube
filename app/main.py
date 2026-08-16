@@ -10,7 +10,7 @@ from bottle import Bottle, response
 from app.config import settings
 from app.routes import health
 
-SERVICE_NAME = "quant-allinpodcast-api"
+SERVICE_NAME = "youtube-api"
 log = logging.getLogger(SERVICE_NAME)
 
 logging.basicConfig(
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     from waitress import serve
 
     log.info(
-        "Starting quant_allinpodcast API on %s:%d ...",
+        "Starting youtube API on %s:%d ...",
         settings.api_listen_address,
         settings.api_port,
     )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
-log = logging.getLogger("quant_allinpodcast.discovery")
+log = logging.getLogger("youtube.discovery")
 
 
 class DiscoveryService:

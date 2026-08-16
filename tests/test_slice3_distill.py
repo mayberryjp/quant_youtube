@@ -29,7 +29,7 @@ class TestDistillApiClient:
         }
         http = FakeHttpClient(body)
         client = DistillApiClient(base_url="http://distill.local/", client=http)
-        payload = {"source": "quant_allinpodcast", "text": "transcript"}
+        payload = {"source": "youtube", "text": "transcript"}
 
         assert client.process(payload) == body
         assert http.calls == [

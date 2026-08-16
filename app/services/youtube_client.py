@@ -19,7 +19,7 @@ from time import perf_counter, sleep
 
 import httpx
 
-log = logging.getLogger("quant_allinpodcast.youtube")
+log = logging.getLogger("youtube.youtube")
 
 _RFC3339_Z_SUFFIX = "+00:00"
 _DEFAULT_BASE_URL = "https://transcriptapi.com/api/v2"

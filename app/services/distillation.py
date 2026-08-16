@@ -7,7 +7,7 @@ from collections import Counter
 
 from app.models.domain import Distillation, Episode, EpisodeStatus
 
-log = logging.getLogger("quant_allinpodcast.distill")
+log = logging.getLogger("youtube.distill")
 
 
 class DistillService:
@@ -17,7 +17,7 @@ class DistillService:
         episode_repo,
         distillation_repo,
         distill_api,
-        source: str = "quant_allinpodcast",
+        source: str = "youtube",
         distill_max_chunk_chars: int = 12000,
         max_attempts: int = 5,
     ) -> None:

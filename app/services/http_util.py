@@ -8,7 +8,7 @@ from typing import Callable
 
 import httpx
 
-log = logging.getLogger("quant_allinpodcast.http")
+log = logging.getLogger("youtube.http")
 
 
 def request_with_retry(

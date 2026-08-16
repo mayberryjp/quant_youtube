@@ -10,11 +10,11 @@ from app.config import settings
 from app.services.factory import build_discovery_service
 from app.workers._base import configure_logging, daily_loop
 
-log = logging.getLogger("quant_allinpodcast.worker")
+log = logging.getLogger("youtube.worker")
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="quant_allinpodcast.workers.discover")
+    parser = argparse.ArgumentParser(prog="youtube.workers.discover")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--wake-time", default=settings.ingest_wake_time)
     parser.add_argument("--interval-hours", type=float, default=0.0)

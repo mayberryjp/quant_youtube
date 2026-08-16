@@ -1,3 +1,3 @@
-"""quant_allinpodcast package."""
+"""youtube package."""
 
 __version__ = "0.1.0"

@@ -10,7 +10,7 @@ from app.config import settings
 from app.models.responses import IngestRunListResponse, IngestRunResponse
 
 sub = Bottle()
-log = logging.getLogger("quant_allinpodcast.runs")
+log = logging.getLogger("youtube.runs")
 
 
 def _json_error(status: int, detail) -> HTTPResponse:

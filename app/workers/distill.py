@@ -9,11 +9,11 @@ from datetime import date
 from app.services.factory import build_distill_service
 from app.workers._base import configure_logging, poll_loop
 
-log = logging.getLogger("quant_allinpodcast.worker")
+log = logging.getLogger("youtube.worker")
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="quant_allinpodcast.workers.distill")
+    parser = argparse.ArgumentParser(prog="youtube.workers.distill")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--interval", type=int, default=900, help="poll interval in seconds")
     parser.add_argument("--limit", type=int, default=200)

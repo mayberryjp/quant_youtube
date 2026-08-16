@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This spec defines how a front-end should read ingestion run history from the ingestion API for `quant_allinpodcast`.
+This spec defines how a front-end should read ingestion run history from the ingestion API for `youtube`.
 
 The front end should use this data to display:
 
