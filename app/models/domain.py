@@ -33,6 +33,7 @@ class Episode(BaseModel):
     attempts: int = 0
     last_error: str | None = None
     distill_job_id: str | None = None
+    distill_attempts: int = 0
     discovered_at: datetime | None = None
     fetched_at: datetime | None = None
     distilled_at: datetime | None = None

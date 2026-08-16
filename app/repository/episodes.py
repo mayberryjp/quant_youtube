@@ -10,7 +10,7 @@ from app.models.domain import Episode, EpisodeStatus
 _COLUMNS = (
     "id, video_id, channel_slug, title, published_at, source_url, thumbnail_url, description, "
     "duration_seconds, transcript_language, transcript_source, content_hash, status, attempts, "
-    "last_error, distill_job_id, discovered_at, fetched_at, distilled_at"
+    "last_error, distill_job_id, distill_attempts, discovered_at, fetched_at, distilled_at"
 )
 
 
@@ -159,6 +159,16 @@ class EpisodeRepository:
                 {"id": episode_id, "job_id": job_id},
             )
 
+    def bump_distill_attempts(self, episode_id: int) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE allin.episodes SET distill_attempts = distill_attempts + 1 "
+                    "WHERE id = :id"
+                ),
+                {"id": episode_id},
+            )
+
     def touch_stage(self, episode_id: int, stage: str) -> None:
         column = {"distilled": "distilled_at"}[stage]
         with self.engine.begin() as conn:
@@ -173,7 +183,8 @@ class EpisodeRepository:
             UPDATE allin.episodes
             SET status = 'fetched',
                 last_error = NULL,
-                distill_job_id = NULL
+                distill_job_id = NULL,
+                distill_attempts = 0
             WHERE id = :id AND raw_text IS NOT NULL
             """
         )
@@ -191,6 +202,7 @@ class EpisodeRepository:
                 transcript_source = NULL,
                 last_error = NULL,
                 distill_job_id = NULL,
+                distill_attempts = 0,
                 fetched_at = NULL,
                 distilled_at = NULL
             WHERE id = :id
@@ -218,13 +230,13 @@ class EpisodeRepository:
             rows = conn.execute(sql, {"max_attempts": max_attempts, "limit": limit}).mappings().all()
         return [_row_to_episode(r) for r in rows]
 
-    def list_needing_distill(self, *, limit: int = 200, max_attempts: int = 5) -> list[Episode]:
+    def list_needing_distill(self, *, limit: int = 200, max_attempts: int = 10) -> list[Episode]:
         """Episodes with a transcript but no current distillation, plus retryable distill failures."""
         sql = text(
             f"""
             SELECT {_COLUMNS}, raw_text FROM allin.episodes
              WHERE status = 'fetched'
-                OR (status = 'failed' AND raw_text IS NOT NULL AND attempts < :max_attempts)
+                OR (status = 'failed' AND raw_text IS NOT NULL AND distill_attempts < :max_attempts)
              ORDER BY published_at DESC NULLS LAST, id DESC
              LIMIT :limit
             """

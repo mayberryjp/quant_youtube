@@ -23,6 +23,8 @@
 - Stores `job_id` on the episode, then polls `GET /v1/jobs/{job_id}` until `succeeded` or `failed`
 - A poll that runs out of time leaves the episode retryable; the stored `job_id` resumes polling on
   the next pass instead of resubmitting the transcript
+- A `failed` job increments `distill_attempts` and is resubmitted as a new job on later passes, up
+  to `DISTILL_MAX_ATTEMPTS` (10); after that the episode is left in `failed`
 - Retries transport errors and `5xx` responses with bounded exponential backoff (submits are never
   retried on timeout, to avoid duplicate jobs)
 - Persists the exact request and authoritative response locally

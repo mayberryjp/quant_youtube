@@ -43,11 +43,11 @@ class FakeEpisodeRepo:
             or (e.status == EpisodeStatus.failed and e.raw_text is None and e.attempts < max_attempts)
         ]
 
-    def list_needing_distill(self, *, limit=200, max_attempts=5):
+    def list_needing_distill(self, *, limit=200, max_attempts=10):
         return [
             e for e in self._by_id.values()
             if e.status == EpisodeStatus.fetched
-            or (e.status == EpisodeStatus.failed and e.raw_text is not None and e.attempts < max_attempts)
+            or (e.status == EpisodeStatus.failed and e.raw_text is not None and e.distill_attempts < max_attempts)
         ]
 
     def get_by_id(self, eid):
@@ -78,11 +78,17 @@ class FakeEpisodeRepo:
     def set_distill_job(self, eid, job_id):
         self._by_id[eid].distill_job_id = job_id
 
+    def bump_distill_attempts(self, eid):
+        self._by_id[eid].distill_attempts += 1
+
     def touch_stage(self, _eid, _stage):
         pass
 
     def reset_for_reprocess(self, eid):
-        self._by_id[eid].status = EpisodeStatus.fetched
+        e = self._by_id[eid]
+        e.status = EpisodeStatus.fetched
+        e.distill_attempts = 0
+        e.distill_job_id = None
         return True
 
     def reset_full(self, eid):
@@ -306,7 +312,20 @@ class TestDistill:
         totals = svc.distill_one(e)
         assert totals["failures"] == 1
         assert episodes.get_by_id(e.id).status == EpisodeStatus.failed
-        assert episodes.get_by_id(e.id).attempts == 1
+        assert episodes.get_by_id(e.id).distill_attempts == 1
+        assert episodes.get_by_id(e.id).distill_job_id is None
+
+    def test_retries_until_max_distill_attempts(self):
+        api = FakeDistillApi(error=RuntimeError("distill unavailable"))
+        episodes, svc, _, _ = self._svc(distill_api=api, max_attempts=10)
+        episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="raw")
+
+        for _ in range(12):
+            svc.run()
+
+        # 10 submissions, then the episode drops out of the retry query.
+        assert len(api.calls) == 10
+        assert episodes.get_by_id(1).distill_attempts == 10
 
 
 def test_run_all_once_records_complete_ingestion(monkeypatch):

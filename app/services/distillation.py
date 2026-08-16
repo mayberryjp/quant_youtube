@@ -20,7 +20,7 @@ class DistillService:
         distill_api,
         source: str = "youtube",
         distill_max_chunk_chars: int = 12000,
-        max_attempts: int = 5,
+        max_attempts: int = 10,
     ) -> None:
         self.episodes = episode_repo
         self.distillations = distillation_repo
@@ -62,13 +62,7 @@ class DistillService:
             return c
         except Exception as exc:
             log.exception("distill failed for %s", vid)
-            self.episodes.set_distill_job(episode.id, None)
-            self.episodes.set_status(
-                episode.id,
-                EpisodeStatus.failed,
-                last_error=str(exc)[:500],
-                bump_attempts=True,
-            )
+            self._mark_failed(episode, exc)
             c["failures"] += 1
             return c
 
@@ -96,15 +90,30 @@ class DistillService:
             log.info("distilled %s", vid)
         except Exception as exc:
             log.exception("storing distillation failed for %s", vid)
-            self.episodes.set_distill_job(episode.id, None)
-            self.episodes.set_status(
-                episode.id,
-                EpisodeStatus.failed,
-                last_error=str(exc)[:500],
-                bump_attempts=True,
-            )
+            self._mark_failed(episode, exc)
             c["failures"] += 1
         return c
+
+    def _mark_failed(self, episode: Episode, exc: Exception) -> None:
+        attempts = episode.distill_attempts + 1
+        self.episodes.set_distill_job(episode.id, None)
+        self.episodes.bump_distill_attempts(episode.id)
+        self.episodes.set_status(
+            episode.id,
+            EpisodeStatus.failed,
+            last_error=str(exc)[:500],
+        )
+        if attempts >= self.max_attempts:
+            log.error(
+                "distill giving up on %s after %d attempt(s)", episode.video_id, attempts
+            )
+        else:
+            log.info(
+                "distill attempt %d/%d failed for %s; will retry",
+                attempts,
+                self.max_attempts,
+                episode.video_id,
+            )
 
     def _build_payload(self, episode: Episode) -> dict:
         payload = {

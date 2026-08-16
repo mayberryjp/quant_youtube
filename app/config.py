@@ -43,6 +43,10 @@ class Settings(BaseSettings):
         default=5,
         validation_alias=AliasChoices("MAX_ATTEMPTS"),
     )
+    distill_max_attempts: int = Field(
+        default=10,
+        validation_alias=AliasChoices("DISTILL_MAX_ATTEMPTS"),
+    )
     min_duration_seconds: int = Field(
         default=0,
         validation_alias=AliasChoices("MIN_VIDEO_DURATION_SECONDS", "MIN_DURATION_SECONDS"),

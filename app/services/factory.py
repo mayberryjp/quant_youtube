@@ -68,7 +68,7 @@ def build_distill_service(engine=None) -> DistillService:
         distill_api=_distill_api(),
         source=settings.distill_source,
         distill_max_chunk_chars=settings.distill_max_chunk_chars,
-        max_attempts=settings.max_attempts,
+        max_attempts=settings.distill_max_attempts,
     )
 
 

@@ -109,6 +109,7 @@ Configuration:
 - `DISTILL_SUBMIT_TIMEOUT` (default `30` seconds, for `POST /v1/process`)
 - `DISTILL_POLL_INTERVAL` (default `20` seconds between `GET /v1/jobs/{id}` polls)
 - `DISTILL_JOB_TIMEOUT` (default `3600` seconds before polling gives up for this pass)
+- `DISTILL_MAX_ATTEMPTS` (default `10` failed distill attempts before the episode is left failed)
 - `DISTILL_SOURCE` (default `youtube`)
 - `DISTILL_MAX_CHUNK_CHARS` (default `12000`)
 

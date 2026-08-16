@@ -10,6 +10,8 @@ Schema: allin
 - Stores raw transcript text and transcript metadata
 - `distill_job_id` holds the in-flight `quant_distill` job while it is queued/running, so polling
   can resume after a restart; cleared once the job reaches a terminal state
+- `distill_attempts` counts failed distill attempts (separate from the transcript `attempts`
+  counter); the episode stops being retried once it reaches `DISTILL_MAX_ATTEMPTS`
 
 2. allin.distillations
 - Versioned distillation outputs by episode_id + model + prompt_version
