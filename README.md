@@ -103,7 +103,7 @@ those downstream APIs directly.
 Configuration:
 
 - `DISTILL_API_URL` (default `http://quant-distill:8021`)
-- `DISTILL_API_TIMEOUT` (default `180` seconds)
+- `DISTILL_API_TIMEOUT` (default `3600` seconds)
 - `DISTILL_SOURCE` (default `quant_allinpodcast`)
 - `DISTILL_MAX_CHUNK_CHARS` (default `12000`)
 

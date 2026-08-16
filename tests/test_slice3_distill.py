@@ -33,7 +33,7 @@ class TestDistillApiClient:
 
         assert client.process(payload) == body
         assert http.calls == [
-            ("http://distill.local/v1/process", {"json": payload, "timeout": 180})
+            ("http://distill.local/v1/process", {"json": payload, "timeout": 3600})
         ]
 
     def test_rejects_invalid_success_response(self):

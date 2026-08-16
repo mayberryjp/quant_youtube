@@ -14,7 +14,7 @@ class DistillApiClient:
         self,
         *,
         base_url: str,
-        timeout: int = 180,
+        timeout: int = 3600,
         retries: int = 3,
         backoff: float = 1.0,
         client: httpx.Client | None = None,
@@ -30,6 +30,7 @@ class DistillApiClient:
             lambda: self.client.post(self.url, json=payload, timeout=self.timeout),
             retries=self.retries,
             backoff=self.backoff,
+            retry_on_timeout=False,
         )
         response.raise_for_status()
         result = response.json()

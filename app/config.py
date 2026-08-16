@@ -98,8 +98,9 @@ class Settings(BaseSettings):
         default="http://quant-distill:8021",
         validation_alias=AliasChoices("DISTILL_API_URL"),
     )
+    # A full transcript distillation fans out to many LLM chunk calls; observed ~30 min per episode.
     distill_api_timeout: int = Field(
-        default=180,
+        default=3600,
         validation_alias=AliasChoices("DISTILL_API_TIMEOUT"),
     )
     distill_source: str = Field(
