@@ -96,14 +96,19 @@ Optional multi-channel discovery:
 
 ## Distillation API Integration
 
-Each fetched transcript is sent once to `POST {DISTILL_API_URL}/v1/process`. The shared service
+Each fetched transcript is submitted once to `POST {DISTILL_API_URL}/v1/process`, which returns
+`202` + a `job_id`. The worker stores that id on the episode and polls `GET /v1/jobs/{job_id}` until
+the job succeeds or fails; if polling runs out of time the episode stays retryable and the stored
+job id is reused on the next pass rather than resubmitting. The shared service
 owns distillation, sentiment, entity extraction, and downstream delivery. This worker does not call
 those downstream APIs directly.
 
 Configuration:
 
 - `DISTILL_API_URL` (default `http://quant-distill:8021`)
-- `DISTILL_API_TIMEOUT` (default `3600` seconds)
+- `DISTILL_SUBMIT_TIMEOUT` (default `30` seconds, for `POST /v1/process`)
+- `DISTILL_POLL_INTERVAL` (default `20` seconds between `GET /v1/jobs/{id}` polls)
+- `DISTILL_JOB_TIMEOUT` (default `3600` seconds before polling gives up for this pass)
 - `DISTILL_SOURCE` (default `youtube`)
 - `DISTILL_MAX_CHUNK_CHARS` (default `12000`)
 

@@ -6,6 +6,7 @@ import logging
 from collections import Counter
 
 from app.models.domain import Distillation, Episode, EpisodeStatus
+from app.services.distill_api import DistillJobTimeout
 
 log = logging.getLogger("youtube.distill")
 
@@ -44,9 +45,34 @@ class DistillService:
     def distill_one(self, episode: Episode) -> Counter:
         c: Counter = Counter()
         vid = episode.video_id
+        payload = self._build_payload(episode)
         try:
-            payload = self._build_payload(episode)
-            response = self.distill_api.process(payload)
+            job_id = episode.distill_job_id
+            if job_id:
+                log.info("resuming distill job %s for %s", job_id, vid)
+            else:
+                job_id = self.distill_api.submit(payload)
+                self.episodes.set_distill_job(episode.id, job_id)
+                log.info("submitted distill job %s for %s", job_id, vid)
+            response = self.distill_api.wait_for_result(job_id)
+        except DistillJobTimeout as exc:
+            # The job is still running server-side; the stored job_id resumes polling next pass.
+            log.warning("distill still pending for %s: %s", vid, exc)
+            c["pending"] += 1
+            return c
+        except Exception as exc:
+            log.exception("distill failed for %s", vid)
+            self.episodes.set_distill_job(episode.id, None)
+            self.episodes.set_status(
+                episode.id,
+                EpisodeStatus.failed,
+                last_error=str(exc)[:500],
+                bump_attempts=True,
+            )
+            c["failures"] += 1
+            return c
+
+        try:
             artifact = response["distillation"]
             processing = response.get("processing") or {}
             self.distillations.upsert(
@@ -63,12 +89,14 @@ class DistillService:
                     request_id=response.get("request_id"),
                 )
             )
+            self.episodes.set_distill_job(episode.id, None)
             self.episodes.set_status(episode.id, EpisodeStatus.done)
             self.episodes.touch_stage(episode.id, "distilled")
             c["distilled"] += 1
             log.info("distilled %s", vid)
         except Exception as exc:
-            log.exception("distill failed for %s", vid)
+            log.exception("storing distillation failed for %s", vid)
+            self.episodes.set_distill_job(episode.id, None)
             self.episodes.set_status(
                 episode.id,
                 EpisodeStatus.failed,

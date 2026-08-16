@@ -30,7 +30,9 @@ def _youtube() -> YouTubeClient:
 def _distill_api() -> DistillApiClient:
     return DistillApiClient(
         base_url=settings.distill_api_url,
-        timeout=settings.distill_api_timeout,
+        submit_timeout=settings.distill_submit_timeout,
+        poll_interval=settings.distill_poll_interval,
+        job_timeout=settings.distill_job_timeout,
         retries=settings.http_retries,
         backoff=settings.retry_backoff,
     )

@@ -10,7 +10,7 @@ from app.models.domain import Episode, EpisodeStatus
 _COLUMNS = (
     "id, video_id, channel_slug, title, published_at, source_url, thumbnail_url, description, "
     "duration_seconds, transcript_language, transcript_source, content_hash, status, attempts, "
-    "last_error, discovered_at, fetched_at, distilled_at"
+    "last_error, distill_job_id, discovered_at, fetched_at, distilled_at"
 )
 
 
@@ -152,6 +152,13 @@ class EpisodeRepository:
                 },
             )
 
+    def set_distill_job(self, episode_id: int, job_id: str | None) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE allin.episodes SET distill_job_id = :job_id WHERE id = :id"),
+                {"id": episode_id, "job_id": job_id},
+            )
+
     def touch_stage(self, episode_id: int, stage: str) -> None:
         column = {"distilled": "distilled_at"}[stage]
         with self.engine.begin() as conn:
@@ -165,7 +172,8 @@ class EpisodeRepository:
             """
             UPDATE allin.episodes
             SET status = 'fetched',
-                last_error = NULL
+                last_error = NULL,
+                distill_job_id = NULL
             WHERE id = :id AND raw_text IS NOT NULL
             """
         )
@@ -182,6 +190,7 @@ class EpisodeRepository:
                 transcript_language = NULL,
                 transcript_source = NULL,
                 last_error = NULL,
+                distill_job_id = NULL,
                 fetched_at = NULL,
                 distilled_at = NULL
             WHERE id = :id

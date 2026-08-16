@@ -75,6 +75,9 @@ class FakeEpisodeRepo:
         if bump_attempts:
             e.attempts += 1
 
+    def set_distill_job(self, eid, job_id):
+        self._by_id[eid].distill_job_id = job_id
+
     def touch_stage(self, _eid, _stage):
         pass
 
@@ -152,10 +155,16 @@ class FakeYouTube:
 class FakeDistillApi:
     def __init__(self, error=None):
         self.calls = []
+        self.jobs = []
         self.error = error
 
-    def process(self, payload):
+    def submit(self, payload):
         self.calls.append(payload)
+        job_id = f"job-{len(self.calls)}"
+        self.jobs.append(job_id)
+        return job_id
+
+    def wait_for_result(self, _job_id):
         if self.error:
             raise self.error
         return {

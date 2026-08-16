@@ -98,10 +98,19 @@ class Settings(BaseSettings):
         default="http://quant-distill:8021",
         validation_alias=AliasChoices("DISTILL_API_URL"),
     )
-    # A full transcript distillation fans out to many LLM chunk calls; observed ~30 min per episode.
-    distill_api_timeout: int = Field(
+    # /v1/process returns 202 immediately, so the submit call only needs a short timeout.
+    distill_submit_timeout: int = Field(
+        default=30,
+        validation_alias=AliasChoices("DISTILL_SUBMIT_TIMEOUT", "DISTILL_API_TIMEOUT"),
+    )
+    distill_poll_interval: int = Field(
+        default=20,
+        validation_alias=AliasChoices("DISTILL_POLL_INTERVAL"),
+    )
+    # A full pipeline run takes 2-30 minutes; give up polling well after that.
+    distill_job_timeout: int = Field(
         default=3600,
-        validation_alias=AliasChoices("DISTILL_API_TIMEOUT"),
+        validation_alias=AliasChoices("DISTILL_JOB_TIMEOUT"),
     )
     distill_source: str = Field(
         default="youtube",

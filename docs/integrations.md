@@ -17,8 +17,12 @@
 
 ## Shared Distillation
 
-- Provider: `quant_distill` `POST /v1/process`
+- Provider: `quant_distill` `POST /v1/process` (async: returns `202` + `job_id`)
 - Sends the complete transcript with stable YouTube identity and source metadata
-- Requests distillation, sentiment, entity extraction, and optional downstream delivery in one call
-- Retries transport errors and `5xx` responses with bounded exponential backoff
+- Requests distillation, sentiment, entity extraction, and optional downstream delivery in one job
+- Stores `job_id` on the episode, then polls `GET /v1/jobs/{job_id}` until `succeeded` or `failed`
+- A poll that runs out of time leaves the episode retryable; the stored `job_id` resumes polling on
+  the next pass instead of resubmitting the transcript
+- Retries transport errors and `5xx` responses with bounded exponential backoff (submits are never
+  retried on timeout, to avoid duplicate jobs)
 - Persists the exact request and authoritative response locally
