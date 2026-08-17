@@ -228,6 +228,19 @@ class TestTranscripts:
         episodes = FakeEpisodeRepo()
         return episodes, TranscriptService(episode_repo=episodes, youtube_client=FakeYouTube(**yt_kwargs))
 
+    def test_skips_episode_above_maximum_duration(self):
+        episodes = FakeEpisodeRepo()
+        svc = TranscriptService(
+            episode_repo=episodes,
+            youtube_client=FakeYouTube(length_seconds=601),
+            max_duration_seconds=600,
+        )
+        episode = episodes.add("abcdefghijk", status=EpisodeStatus.discovered)
+
+        assert svc.run()["skipped"] == 1
+        assert episodes.get_by_id(episode.id).status == EpisodeStatus.skipped
+        assert "maximum" in episodes.get_by_id(episode.id).last_error
+
     def test_fetches_discovered_episode(self):
         episodes, svc = self._svc()
         e = episodes.add("abcdefghijk", status=EpisodeStatus.discovered)

@@ -357,7 +357,14 @@ class EpisodeRepository:
             """
             SELECT count(*) AS episodes_total,
                    count(fetched_at) AS transcripts_fetched,
-                   count(distilled_at) AS distilled
+                     count(distilled_at) AS distilled,
+                   count(*) FILTER (WHERE status = 'failed') AS failures,
+                   count(*) FILTER (
+                       WHERE status = 'skipped' AND last_error LIKE 'above % maximum%'
+                   ) AS duration_filtered,
+                   count(*) FILTER (
+                       WHERE last_error LIKE 'No transcript available for%'
+                   ) AS transcript_unavailable
               FROM allin.episodes
             """
         )

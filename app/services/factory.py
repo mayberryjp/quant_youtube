@@ -57,6 +57,7 @@ def build_transcript_service(engine=None) -> TranscriptService:
         transcript_languages=settings.transcript_language_preference,
         max_attempts=settings.max_attempts,
         min_duration_seconds=settings.min_duration_seconds,
+        max_duration_seconds=settings.max_duration_seconds,
     )
 
 

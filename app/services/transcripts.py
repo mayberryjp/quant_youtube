@@ -20,12 +20,14 @@ class TranscriptService:
         transcript_languages: list[str] | None = None,
         max_attempts: int = 5,
         min_duration_seconds: int = 0,
+        max_duration_seconds: int = 0,
     ) -> None:
         self.episodes = episode_repo
         self.youtube = youtube_client
         self.languages = transcript_languages or ["en-orig", "en", "en-US", "en-GB"]
         self.max_attempts = max_attempts
         self.min_duration_seconds = min_duration_seconds
+        self.max_duration_seconds = max_duration_seconds
 
     def run(self, *, limit: int = 200) -> Counter:
         totals: Counter = Counter()
@@ -66,6 +68,21 @@ class TranscriptService:
                 log.info(
                     "skipped %s: %ss < %ss minimum",
                     episode.video_id, length_seconds, self.min_duration_seconds,
+                )
+                return "skipped"
+            if (
+                self.max_duration_seconds
+                and length_seconds is not None
+                and length_seconds > self.max_duration_seconds
+            ):
+                self.episodes.mark_skipped(
+                    episode.id,
+                    duration_seconds=length_seconds,
+                    reason=f"above {self.max_duration_seconds}s maximum ({length_seconds}s)",
+                )
+                log.info(
+                    "skipped %s: %ss > %ss maximum",
+                    episode.video_id, length_seconds, self.max_duration_seconds,
                 )
                 return "skipped"
             if not text:

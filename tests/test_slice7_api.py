@@ -156,6 +156,22 @@ class TestReadApi:
         assert resp.json["total"] == 1
         assert resp.json["items"][0]["run_date"] == "2026-08-02"
 
+    def test_list_runs_returns_all_rows_by_default(self, app_client, monkeypatch):
+        captured = {}
+
+        class Repo(RunRepo):
+            def list(self, **kwargs):
+                captured.update(kwargs)
+                return super().list(**kwargs)
+
+        monkeypatch.setattr("app.dependencies.run_repo", lambda *a, **k: Repo())
+        resp = app_client.get("/allin/runs")
+
+        assert resp.status_int == 200
+        assert captured["page"] == 1
+        assert captured["page_size"] is None
+        assert resp.json["page_size"] == 1
+
     def test_list_runs_allows_large_page_size(self, app_client, monkeypatch):
         captured = {}
 
@@ -179,7 +195,14 @@ class TestReadApi:
     def test_summary_endpoint(self, app_client, monkeypatch):
         class EpisodeRepo:
             def completed_counts(self):
-                return {"episodes_total": 10, "transcripts_fetched": 8, "distilled": 7}
+                return {
+                    "episodes_total": 10,
+                    "transcripts_fetched": 8,
+                    "distilled": 7,
+                    "failures": 6,
+                    "duration_filtered": 4,
+                    "transcript_unavailable": 3,
+                }
 
         class TotalsRepo:
             def totals(self):
@@ -197,7 +220,9 @@ class TestReadApi:
             "transcripts_fetched": 8,
             "distilled": 7,
             "reprocessed": 2,
-            "failures": 1,
+            "failures": 6,
+            "duration_filtered": 4,
+            "transcript_unavailable": 3,
             "episodes_total": 10,
             "runs_total": 3,
         }

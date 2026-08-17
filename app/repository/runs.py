@@ -114,7 +114,7 @@ class RunRepository:
         from_date: date | None = None,
         to_date: date | None = None,
         page: int = 1,
-        page_size: int = 25,
+        page_size: int | None = 25,
     ) -> tuple[list[IngestRun], int]:
         clauses = []
         params: dict = {}
@@ -128,17 +128,20 @@ class RunRepository:
             clauses.append("run_date <= :to_date")
             params["to_date"] = to_date
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        offset = max(page - 1, 0) * page_size
+        offset = max(page - 1, 0) * page_size if page_size is not None else 0
+        limit_clause = "LIMIT :limit OFFSET :offset" if page_size is not None else ""
         sql = text(
             f"""
             SELECT * FROM allin.ingest_runs
              {where}
              ORDER BY run_date DESC
-             LIMIT :limit OFFSET :offset
+             {limit_clause}
             """
         )
         count_sql = text(f"SELECT count(*) FROM allin.ingest_runs{where}")
-        params_with_page = {**params, "limit": page_size, "offset": offset}
+        params_with_page = {**params}
+        if page_size is not None:
+            params_with_page.update(limit=page_size, offset=offset)
         with self.engine.connect() as conn:
             rows = conn.execute(sql, params_with_page).mappings().all()
             total = conn.execute(count_sql, params).scalar_one()

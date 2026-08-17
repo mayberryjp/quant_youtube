@@ -53,6 +53,11 @@ curl http://localhost:8022/allin/health
 - POST /runs/trigger
 - GET /jobs/{id}
 
+`GET /episodes` and `GET /allin/runs` return all rows by default. Add `page=1&page_size=25` to paginate explicitly.
+
+Set `MAX_VIDEO_DURATION_SECONDS` to skip videos longer than the configured limit. `/allin/summary` reports those episodes as `duration_filtered`.
+It also reports episodes rejected because no transcript was available as `transcript_unavailable`.
+
 `GET /episodes` returns all episode rows by default. Add `page=1&page_size=25` to paginate it explicitly. `/allin/runs` remains paginated by default, with `page_size` accepting any positive value.
 
 ## Workers

@@ -51,6 +51,10 @@ class Settings(BaseSettings):
         default=0,
         validation_alias=AliasChoices("MIN_VIDEO_DURATION_SECONDS", "MIN_DURATION_SECONDS"),
     )
+    max_duration_seconds: int = Field(
+        default=0,
+        validation_alias=AliasChoices("MAX_VIDEO_DURATION_SECONDS", "MAX_DURATION_SECONDS"),
+    )
     failed_retry_interval_hours: float = Field(
         default=6.0,
         validation_alias=AliasChoices("FAILED_RETRY_INTERVAL_HOURS"),

@@ -61,6 +61,8 @@ def summary():
             "distilled": 0,
             "reprocessed": 0,
             "failures": 0,
+            "duration_filtered": 0,
+            "transcript_unavailable": 0,
             "episodes_total": 0,
             "runs_total": 0,
         }
