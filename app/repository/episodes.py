@@ -358,7 +358,13 @@ class EpisodeRepository:
             SELECT count(*) AS episodes_total,
                    count(fetched_at) AS transcripts_fetched,
                      count(distilled_at) AS distilled,
-                   count(*) FILTER (WHERE status = 'failed') AS failures,
+                                     count(*) FILTER (
+                                             WHERE status = 'failed'
+                                                 AND lower(last_error) NOT LIKE 'transcript unavailable for%'
+                                                 AND lower(last_error) NOT LIKE 'no transcript available for%'
+                                                 AND lower(last_error) NOT LIKE 'below % minimum%'
+                                                 AND lower(last_error) NOT LIKE 'above % maximum%'
+                                     ) AS failures,
                    count(*) FILTER (
                        WHERE status = 'skipped' AND lower(last_error) LIKE 'below % minimum%'
                    ) AS duration_too_short,

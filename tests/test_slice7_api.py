@@ -199,7 +199,7 @@ class TestReadApi:
                     "episodes_total": 10,
                     "transcripts_fetched": 8,
                     "distilled": 7,
-                    "failures": 6,
+                    "failures": 2,
                     "duration_too_short": 2,
                     "transcript_unavailable": 3,
                 }
@@ -220,7 +220,7 @@ class TestReadApi:
             "transcripts_fetched": 8,
             "distilled": 7,
             "reprocessed": 2,
-            "failures": 6,
+            "failures": 2,
             "duration_too_short": 2,
             "transcript_unavailable": 3,
             "episodes_total": 10,
