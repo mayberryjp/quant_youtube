@@ -8,7 +8,7 @@ from app.services.discovery import DiscoveryService
 from app.services.distillation import DistillService
 from app.services import factory
 from app.services.transcripts import TranscriptService
-from app.services.youtube_client import TranscriptRateLimited
+from app.services.youtube_client import TranscriptRateLimited, TranscriptUnavailable
 
 
 class FakeEpisodeRepo:
@@ -132,11 +132,12 @@ class FakeDistRepo:
 
 
 class FakeYouTube:
-    def __init__(self, *, items=None, transcript=("hello transcript", "en", "test"), rate_limited=False, length_seconds=None):
+    def __init__(self, *, items=None, transcript=("hello transcript", "en", "test"), rate_limited=False, length_seconds=None, unavailable=False):
         self._items = items or []
         self._transcript = transcript
         self._rate_limited = rate_limited
         self._length_seconds = length_seconds
+        self._unavailable = unavailable
 
     def discover_recent_videos(self, **_kwargs):
         return self._items
@@ -149,6 +150,8 @@ class FakeYouTube:
     def fetch_transcript_detail(self, _video_id, **_kwargs):
         if self._rate_limited:
             raise TranscriptRateLimited("429")
+        if self._unavailable:
+            raise TranscriptUnavailable("transcript unavailable")
         text, language, source = self._transcript
         return {
             "text": text,
@@ -240,6 +243,20 @@ class TestTranscripts:
         assert totals["failures"] == 1
         assert episodes.get_by_id(e.id).status == EpisodeStatus.discovered
         assert episodes.get_by_id(e.id).attempts == 0
+
+    def test_missing_transcript_stays_retryable_then_skips(self):
+        episodes, svc = self._svc(unavailable=True)
+        e = episodes.add("abcdefghijk", status=EpisodeStatus.discovered)
+
+        totals = svc.run()
+        assert totals["unavailable"] == 1
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.failed
+        assert episodes.get_by_id(e.id).attempts == 1
+
+        for _ in range(10):
+            svc.run()
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.skipped
+        assert episodes.get_by_id(e.id).attempts == 4
 
     def test_skips_short_video(self):
         episodes = FakeEpisodeRepo()

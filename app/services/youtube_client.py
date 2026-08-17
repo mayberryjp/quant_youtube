@@ -34,6 +34,10 @@ class TranscriptRateLimited(Exception):
     """transcriptapi.com signalled a transient condition (429/402/5xx); keep the episode retryable."""
 
 
+class TranscriptUnavailable(ValueError):
+    """No transcript exists yet for the requested languages (404 or an empty transcript body)."""
+
+
 class YouTubeClient:
     """Thin HTTP client over transcriptapi.com for discovery + transcript extraction."""
 
@@ -168,12 +172,14 @@ class YouTubeClient:
                     "source": "transcriptapi",
                     "length_seconds": length_seconds,
                 }
-            raise ValueError("transcript unavailable")
+            raise TranscriptUnavailable(f"transcript unavailable for {video_id} ({','.join(codes)})")
 
         if status in _TRANSIENT_STATUS:
             raise TranscriptRateLimited(f"transcriptapi {status} for {video_id}: {_detail_message(payload)}")
         if status == 404:
-            raise ValueError("transcript unavailable")
+            raise TranscriptUnavailable(
+                f"transcript unavailable for {video_id} ({','.join(codes)}): {_detail_message(payload)}"
+            )
         raise RuntimeError(f"transcriptapi {status} for {video_id}: {_detail_message(payload)}")
 
     def available_languages(self, video_id: str) -> list[dict]:

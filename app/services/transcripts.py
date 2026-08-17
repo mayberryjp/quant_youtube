@@ -6,7 +6,7 @@ import logging
 from collections import Counter
 
 from app.models.domain import Episode, EpisodeStatus
-from app.services.youtube_client import TranscriptRateLimited, content_hash
+from app.services.youtube_client import TranscriptRateLimited, TranscriptUnavailable, content_hash
 
 log = logging.getLogger("youtube.transcripts")
 
@@ -41,6 +41,8 @@ class TranscriptService:
                 totals["transcripts_fetched"] += 1
             elif outcome == "skipped":
                 totals["skipped"] += 1
+            elif outcome == "unavailable":
+                totals["unavailable"] += 1
             else:
                 totals["failures"] += 1
         log.info("transcript pass complete: %s", dict(totals))
@@ -67,13 +69,7 @@ class TranscriptService:
                 )
                 return "skipped"
             if not text:
-                self.episodes.set_status(
-                    episode.id,
-                    EpisodeStatus.failed,
-                    last_error="transcript unavailable",
-                    bump_attempts=True,
-                )
-                return "failed"
+                raise TranscriptUnavailable(f"transcript unavailable for {episode.video_id}")
             self.episodes.mark_fetched(
                 episode.id,
                 raw_text=text,
@@ -87,6 +83,23 @@ class TranscriptService:
             else:
                 log.info("fetched transcript for %s", episode.video_id)
             return "fetched"
+        except TranscriptUnavailable as exc:
+            # YouTube may still be generating captions, so retry until attempts run out.
+            if episode.attempts + 1 >= self.max_attempts:
+                log.warning(
+                    "no transcript for %s after %d attempt(s); skipping",
+                    episode.video_id, episode.attempts + 1,
+                )
+                self.episodes.mark_skipped(episode.id, reason=str(exc)[:500])
+                return "skipped"
+            log.warning("no transcript yet for %s: %s", episode.video_id, exc)
+            self.episodes.set_status(
+                episode.id,
+                EpisodeStatus.failed,
+                last_error=str(exc)[:500],
+                bump_attempts=True,
+            )
+            return "unavailable"
         except TranscriptRateLimited as exc:
             # Transient throttling: keep the episode retryable instead of permanently failing it.
             log.warning("rate limited fetching %s; leaving retryable", episode.video_id)
@@ -117,6 +130,8 @@ class TranscriptService:
             totals["transcripts_fetched"] += 1
         elif outcome == "skipped":
             totals["skipped"] += 1
+        elif outcome == "unavailable":
+            totals["unavailable"] += 1
         else:
             totals["failures"] += 1
         return totals
