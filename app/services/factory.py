@@ -102,8 +102,15 @@ def run_transcript_once(*, limit: int = 200, run_date=None):
 
 
 def run_distill_once(*, limit: int = 200, run_date=None):
-    """Run one distillation pass and attach its counters to the daily run."""
+    """Submit one batch of fetched transcripts and attach its counters to the daily run."""
     result = build_distill_service().run(limit=limit)
+    _record_stage_result(run_date, result, "distilled")
+    return result
+
+
+def run_distill_status_once(*, limit: int = 200, run_date=None):
+    """Check one batch of submitted distillation jobs and persist completions."""
+    result = build_distill_service().collect(limit=limit)
     _record_stage_result(run_date, result, "distilled")
     return result
 

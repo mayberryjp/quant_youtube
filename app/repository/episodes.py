@@ -231,18 +231,33 @@ class EpisodeRepository:
         return [_row_to_episode(r) for r in rows]
 
     def list_needing_distill(self, *, limit: int = 200, max_attempts: int = 10) -> list[Episode]:
-        """Episodes with a transcript but no current distillation, plus retryable distill failures."""
+        """Episodes ready to submit to distillation, excluding already-submitted jobs."""
         sql = text(
             f"""
             SELECT {_COLUMNS}, raw_text FROM allin.episodes
-             WHERE status = 'fetched'
-                OR (status = 'failed' AND raw_text IS NOT NULL AND distill_attempts < :max_attempts)
+             WHERE (status = 'fetched' AND distill_job_id IS NULL)
+                OR (status = 'failed' AND raw_text IS NOT NULL AND distill_job_id IS NULL
+                    AND distill_attempts < :max_attempts)
              ORDER BY published_at DESC NULLS LAST, id DESC
              LIMIT :limit
             """
         )
         with self.engine.connect() as conn:
             rows = conn.execute(sql, {"max_attempts": max_attempts, "limit": limit}).mappings().all()
+        return [_row_to_episode(r) for r in rows]
+
+    def list_pending_distill(self, *, limit: int = 200) -> list[Episode]:
+        """Episodes whose queued distillation jobs need a status check."""
+        sql = text(
+            f"""
+            SELECT {_COLUMNS}, raw_text FROM allin.episodes
+             WHERE status = 'fetched' AND distill_job_id IS NOT NULL
+             ORDER BY published_at DESC NULLS LAST, id DESC
+             LIMIT :limit
+            """
+        )
+        with self.engine.connect() as conn:
+            rows = conn.execute(sql, {"limit": limit}).mappings().all()
         return [_row_to_episode(r) for r in rows]
 
     def list(

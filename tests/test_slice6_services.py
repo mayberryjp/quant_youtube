@@ -46,9 +46,15 @@ class FakeEpisodeRepo:
     def list_needing_distill(self, *, limit=200, max_attempts=10):
         return [
             e for e in self._by_id.values()
-            if e.status == EpisodeStatus.fetched
+            if (e.status == EpisodeStatus.fetched and e.distill_job_id is None)
             or (e.status == EpisodeStatus.failed and e.raw_text is not None and e.distill_attempts < max_attempts)
         ]
+
+    def list_pending_distill(self, *, limit=200):
+        return [
+            e for e in self._by_id.values()
+            if e.status == EpisodeStatus.fetched and e.distill_job_id is not None
+        ][:limit]
 
     def get_by_id(self, eid):
         return self._by_id.get(eid)
@@ -317,14 +323,52 @@ class TestDistill:
             **kwargs,
         ), api, repo
 
-    def test_fetched_to_done(self):
+    def test_submits_fetched_episode_without_waiting(self):
         episodes, svc, api, repo = self._svc()
         e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="raw")
         totals = svc.run()
-        assert totals["distilled"] == 1
-        assert episodes.get_by_id(e.id).status == EpisodeStatus.done
+        assert totals["submitted"] == 1
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.fetched
+        assert episodes.get_by_id(e.id).distill_job_id == "job-1"
         assert api.calls[0]["source_item_id"] == "abcdefghijk"
         assert api.calls[0]["text"] == "raw"
+        assert repo.rows == {}
+
+    def test_submits_the_full_batch_before_waiting_for_results(self):
+        class OrderedApi(FakeDistillApi):
+            def __init__(self):
+                super().__init__()
+                self.events = []
+
+            def submit(self, payload):
+                self.events.append(("submit", payload["source_item_id"]))
+                return super().submit(payload)
+
+            def wait_for_result(self, job_id):
+                self.events.append(("wait", job_id))
+                return super().wait_for_result(job_id)
+
+        episodes = FakeEpisodeRepo()
+        api = OrderedApi()
+        _, svc, _, _ = self._svc(episodes=episodes, distill_api=api)
+        episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="first")
+        episodes.add("lmnopqrstuv", status=EpisodeStatus.fetched, raw_text="second")
+
+        totals = svc.run()
+
+        assert totals["submitted"] == 2
+        assert [event[0] for event in api.events] == ["submit", "submit"]
+
+    def test_status_pass_collects_previously_submitted_job(self):
+        episodes, svc, api, repo = self._svc()
+        e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="raw")
+
+        svc.run()
+        totals = svc.collect()
+
+        assert totals["distilled"] == 1
+        assert episodes.get_by_id(e.id).status == EpisodeStatus.done
+        assert episodes.get_by_id(e.id).distill_job_id is None
         assert repo.rows[e.id].request_payload == api.calls[0]
         assert repo.rows[e.id].response_payload["request_id"] == "request-1"
 
@@ -333,13 +377,15 @@ class TestDistill:
         e = episodes.add("abcdefghijk", status=EpisodeStatus.done, raw_text="raw")
         totals = svc.reprocess(e)
         assert totals["reprocessed"] == 1
-        assert totals["distilled"] == 1
+        assert totals["submitted"] == 1
+        assert svc.collect()["distilled"] == 1
 
     def test_api_failure_marks_episode_failed(self):
         api = FakeDistillApi(error=RuntimeError("distill unavailable"))
         episodes, svc, _, _ = self._svc(distill_api=api)
         e = episodes.add("abcdefghijk", status=EpisodeStatus.fetched, raw_text="raw")
-        totals = svc.distill_one(e)
+        svc.distill_one(e)
+        totals = svc.collect()
         assert totals["failures"] == 1
         assert episodes.get_by_id(e.id).status == EpisodeStatus.failed
         assert episodes.get_by_id(e.id).distill_attempts == 1
@@ -352,6 +398,7 @@ class TestDistill:
 
         for _ in range(12):
             svc.run()
+            svc.collect()
 
         # 10 submissions, then the episode drops out of the retry query.
         assert len(api.calls) == 10

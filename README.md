@@ -69,7 +69,8 @@ Three independent stages, each its own process:
 ```powershell
 py -m app.workers.discover --once      # crawl channels -> insert episodes (logs an ingest_runs row)
 py -m app.workers.transcript --once    # download transcripts for discovered episodes
-py -m app.workers.distill --once       # send fetched transcripts to quant_distill
+py -m app.workers.distill --once       # queue fetched transcripts in quant_distill
+py -m app.workers.distill_status --once # persist completed quant_distill jobs
 ```
 
 Retry failed transcript fetches:
@@ -107,9 +108,9 @@ Optional multi-channel discovery:
 ## Distillation API Integration
 
 Each fetched transcript is submitted once to `POST {DISTILL_API_URL}/v1/process`, which returns
-`202` + a `job_id`. The worker stores that id on the episode and polls `GET /v1/jobs/{job_id}` until
-the job succeeds or fails; if polling runs out of time the episode stays retryable and the stored
-job id is reused on the next pass rather than resubmitting. The shared service
+`202` + a `job_id`. The distillation worker stores that ID and returns without polling. The separate
+distillation-status worker polls `GET /v1/jobs/{job_id}` and persists completed jobs; if a status
+check times out, the job ID is retained for the next status pass. The shared service
 owns distillation, sentiment, entity extraction, and downstream delivery. This worker does not call
 those downstream APIs directly.
 

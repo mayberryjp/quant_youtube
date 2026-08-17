@@ -30,20 +30,47 @@ class DistillService:
         self.max_attempts = max_attempts
 
     def run(self, *, limit: int = 200) -> Counter:
+        """Submit every eligible transcript without waiting for its result."""
         totals: Counter = Counter()
         pending = self.episodes.list_needing_distill(limit=limit, max_attempts=self.max_attempts)
         if not pending:
             log.info("distill pass: no episodes need distillation (limit=%d, max_attempts=%d)", limit, self.max_attempts)
             return totals
         log.info("distill pass: %d episode(s) to distill (limit=%d)", len(pending), limit)
+        submitted: list[tuple[Episode, str, dict]] = []
         for i, episode in enumerate(pending, 1):
             log.info("distill [%d/%d] %s %s", i, len(pending), episode.video_id, (episode.title or "").strip()[:80])
-            totals.update(self.distill_one(episode))
+            job = self._submit(episode)
+            if job is None:
+                totals["failures"] += 1
+                continue
+            submitted.append((episode, *job))
+            totals["submitted"] += 1
+
+        log.info("distill pass: submitted %d job(s)", len(submitted))
         log.info("distill pass complete: %s", dict(totals))
         return totals
 
+    def collect(self, *, limit: int = 200) -> Counter:
+        """Poll submitted jobs and persist any completed distillations."""
+        totals: Counter = Counter()
+        pending = self.episodes.list_pending_distill(limit=limit)
+        if not pending:
+            log.info("distill status pass: no submitted jobs (limit=%d)", limit)
+            return totals
+        log.info("distill status pass: checking %d submitted job(s)", len(pending))
+        for episode in pending:
+            totals.update(self._collect(episode, episode.distill_job_id, self._build_payload(episode)))
+        log.info("distill status pass complete: %s", dict(totals))
+        return totals
+
     def distill_one(self, episode: Episode) -> Counter:
-        c: Counter = Counter()
+        job = self._submit(episode)
+        if job is None:
+            return Counter(failures=1)
+        return Counter(submitted=1)
+
+    def _submit(self, episode: Episode) -> tuple[str, dict] | None:
         vid = episode.video_id
         payload = self._build_payload(episode)
         try:
@@ -53,7 +80,18 @@ class DistillService:
             else:
                 job_id = self.distill_api.submit(payload)
                 self.episodes.set_distill_job(episode.id, job_id)
+                self.episodes.set_status(episode.id, EpisodeStatus.fetched)
                 log.info("submitted distill job %s for %s", job_id, vid)
+            return job_id, payload
+        except Exception as exc:
+            log.exception("distill submission failed for %s", vid)
+            self._mark_failed(episode, exc)
+            return None
+
+    def _collect(self, episode: Episode, job_id: str, payload: dict) -> Counter:
+        c: Counter = Counter()
+        vid = episode.video_id
+        try:
             response = self.distill_api.wait_for_result(job_id)
         except DistillJobTimeout as exc:
             # The job is still running server-side; the stored job_id resumes polling next pass.
