@@ -108,6 +108,24 @@ class TestReadApi:
         assert resp.json["total"] == 1
         assert resp.json["items"][0]["video_id"] == "abcdefghijk"
 
+    def test_list_episodes_returns_all_rows_by_default(self, app_client, monkeypatch):
+        captured = {}
+
+        class Repo(FakeEpisodeRepo):
+            def list(self, **kwargs):
+                captured.update(kwargs)
+                return super().list(**kwargs)
+
+        monkeypatch.setattr("app.dependencies.episode_repo", lambda *a, **k: Repo())
+        monkeypatch.setattr("app.dependencies.distillation_repo", lambda *a, **k: DRepo())
+
+        resp = app_client.get("/episodes")
+
+        assert resp.status_int == 200
+        assert captured["page"] == 1
+        assert captured["page_size"] is None
+        assert resp.json["page_size"] == 1
+
     def test_reprocess_endpoint(self, app_client, monkeypatch):
         monkeypatch.setattr("app.routes.episodes.build_distill_service", lambda *a, **k: FakeService())
         resp = app_client.post_json("/episodes/abcdefghijk/reprocess", {})
@@ -137,6 +155,20 @@ class TestReadApi:
         assert resp.status_int == 200
         assert resp.json["total"] == 1
         assert resp.json["items"][0]["run_date"] == "2026-08-02"
+
+    def test_list_runs_allows_large_page_size(self, app_client, monkeypatch):
+        captured = {}
+
+        class Repo(RunRepo):
+            def list(self, **kwargs):
+                captured.update(kwargs)
+                return [], 0
+
+        monkeypatch.setattr("app.dependencies.run_repo", lambda *a, **k: Repo())
+        resp = app_client.get("/allin/runs?page_size=10000")
+
+        assert resp.status_int == 200
+        assert captured["page_size"] == 10000
 
     def test_get_run(self, app_client, monkeypatch):
         monkeypatch.setattr("app.dependencies.run_repo", lambda *a, **k: RunRepo())

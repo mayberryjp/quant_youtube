@@ -24,10 +24,12 @@ def _json_error(status: int, detail) -> HTTPResponse:
     return HTTPResponse(status=status, body={"detail": detail})
 
 
-def _page_params() -> tuple[int, int]:
+def _page_params() -> tuple[int, int | None]:
+    if "page" not in request.params and "page_size" not in request.params:
+        return 1, None
     page = max(int(request.params.get("page") or 1), 1)
     page_size = int(request.params.get("page_size") or settings.default_page_size)
-    page_size = max(1, min(page_size, settings.max_page_size))
+    page_size = max(page_size, 1)
     return page, page_size
 
 
@@ -53,7 +55,7 @@ def list_episodes():
         ],
         "total": total,
         "page": page,
-        "page_size": page_size,
+        "page_size": total if page_size is None else page_size,
     }
 
 

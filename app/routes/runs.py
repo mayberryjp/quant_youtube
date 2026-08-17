@@ -20,7 +20,7 @@ def _json_error(status: int, detail) -> HTTPResponse:
 def _page_params() -> tuple[int, int]:
     page = max(int(request.params.get("page") or 1), 1)
     page_size = int(request.params.get("page_size") or settings.default_page_size)
-    page_size = max(1, min(page_size, settings.max_page_size))
+    page_size = max(page_size, 1)
     return page, page_size
 
 

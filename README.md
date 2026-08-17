@@ -53,6 +53,8 @@ curl http://localhost:8022/allin/health
 - POST /runs/trigger
 - GET /jobs/{id}
 
+`GET /episodes` returns all episode rows by default. Add `page=1&page_size=25` to paginate it explicitly. `/allin/runs` remains paginated by default, with `page_size` accepting any positive value.
+
 ## Workers
 
 Three independent stages, each its own process:
