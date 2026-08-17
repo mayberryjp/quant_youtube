@@ -55,8 +55,10 @@ curl http://localhost:8022/allin/health
 
 `GET /episodes` and `GET /allin/runs` return all rows by default. Add `page=1&page_size=25` to paginate explicitly.
 
-Set `MAX_VIDEO_DURATION_SECONDS` to skip videos longer than the configured limit. `/allin/summary` reports those episodes as `duration_filtered`.
+Set `MAX_VIDEO_DURATION_SECONDS` to skip videos longer than the configured limit.
+`/allin/summary` reports episodes below `MIN_VIDEO_DURATION_SECONDS` as `duration_too_short`.
 It also reports episodes rejected because no transcript was available as `transcript_unavailable`.
+Episodes below `MIN_VIDEO_DURATION_SECONDS` are reported as `duration_too_short`.
 
 `GET /episodes` returns all episode rows by default. Add `page=1&page_size=25` to paginate it explicitly. `/allin/runs` remains paginated by default, with `page_size` accepting any positive value.
 

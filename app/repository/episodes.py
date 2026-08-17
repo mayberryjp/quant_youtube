@@ -360,10 +360,11 @@ class EpisodeRepository:
                      count(distilled_at) AS distilled,
                    count(*) FILTER (WHERE status = 'failed') AS failures,
                    count(*) FILTER (
-                       WHERE status = 'skipped' AND last_error LIKE 'above % maximum%'
-                   ) AS duration_filtered,
+                       WHERE status = 'skipped' AND lower(last_error) LIKE 'below % minimum%'
+                   ) AS duration_too_short,
                    count(*) FILTER (
-                       WHERE last_error LIKE 'No transcript available for%'
+                       WHERE lower(last_error) LIKE 'transcript unavailable for%'
+                          OR lower(last_error) LIKE 'no transcript available for%'
                    ) AS transcript_unavailable
               FROM allin.episodes
             """
