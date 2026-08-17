@@ -6,7 +6,7 @@ import argparse
 import logging
 from datetime import date
 
-from app.services.factory import build_distill_service
+from app.services.factory import build_distill_service, run_distill_once
 from app.workers._base import configure_logging, poll_loop
 
 log = logging.getLogger("youtube.worker")
@@ -36,11 +36,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.once:
         log.info("distill worker: single pass (limit=%d)", args.limit)
-        service.run(limit=args.limit)
+        run_distill_once(limit=args.limit)
         return
 
     log.info("distill worker: polling every %ds (limit=%d)", args.interval, args.limit)
-    poll_loop(lambda: build_distill_service().run(limit=args.limit), name="distill", interval=args.interval)
+    poll_loop(lambda: run_distill_once(limit=args.limit), name="distill", interval=args.interval)
 
 
 if __name__ == "__main__":

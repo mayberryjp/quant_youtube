@@ -370,3 +370,19 @@ def test_run_all_once_records_complete_ingestion(monkeypatch):
     assert result == {"episodes_discovered": 2, "transcripts_fetched": 2, "distilled": 1, "failures": 1}
     assert runs.counters == Counter(transcripts_fetched=2, distilled=1, failures=1)
     assert runs.finished == ("partial", result)
+
+
+def test_independent_distill_pass_records_run_counter(monkeypatch):
+    runs = FakeRunRepo()
+
+    class Service:
+        def run(self, **_kwargs):
+            return Counter(distilled=3)
+
+    monkeypatch.setattr(factory, "build_distill_service", lambda: Service())
+    monkeypatch.setattr(factory.deps, "run_repo", lambda: runs)
+
+    result = factory.run_distill_once(limit=10, run_date=date(2026, 8, 16))
+
+    assert result == Counter(distilled=3)
+    assert runs.counters == Counter(distilled=3, failures=0)

@@ -7,7 +7,7 @@ import logging
 from datetime import date
 
 from app.config import settings
-from app.services.factory import build_transcript_service
+from app.services.factory import build_transcript_service, run_transcript_once
 from app.workers._base import configure_logging, poll_loop
 
 log = logging.getLogger("youtube.worker")
@@ -53,11 +53,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.once:
         log.info("transcript worker: single pass (limit=%d)", args.limit)
-        service.run(limit=args.limit)
+        run_transcript_once(limit=args.limit)
         return
 
     log.info("transcript worker: polling every %ds (limit=%d)", args.interval, args.limit)
-    poll_loop(lambda: build_transcript_service().run(limit=args.limit), name="transcript", interval=args.interval)
+    poll_loop(lambda: run_transcript_once(limit=args.limit), name="transcript", interval=args.interval)
 
 
 if __name__ == "__main__":

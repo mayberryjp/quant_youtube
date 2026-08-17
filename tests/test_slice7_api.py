@@ -143,3 +143,29 @@ class TestReadApi:
         resp = app_client.get("/allin/runs/2026-08-02")
         assert resp.status_int == 200
         assert resp.json["status"] == "success"
+
+    def test_summary_endpoint(self, app_client, monkeypatch):
+        class EpisodeRepo:
+            def completed_counts(self):
+                return {"episodes_total": 10, "transcripts_fetched": 8, "distilled": 7}
+
+        class TotalsRepo:
+            def totals(self):
+                return {"episodes_discovered": 12, "reprocessed": 2, "failures": 1, "runs_total": 3}
+
+        monkeypatch.setattr("app.dependencies.episode_repo", lambda *a, **k: EpisodeRepo())
+        monkeypatch.setattr("app.routes.health.RunRepository", lambda _engine: TotalsRepo())
+        monkeypatch.setattr("app.routes.health.db.get_engine", lambda: object())
+
+        resp = app_client.get("/allin/summary")
+
+        assert resp.status_int == 200
+        assert resp.json == {
+            "episodes_discovered": 12,
+            "transcripts_fetched": 8,
+            "distilled": 7,
+            "reprocessed": 2,
+            "failures": 1,
+            "episodes_total": 10,
+            "runs_total": 3,
+        }

@@ -44,3 +44,23 @@ def stats():
             "last_run_status": None,
             "last_heartbeat": None,
         }
+
+
+@sub.get("/allin/summary")
+def summary():
+    """Return lifetime pipeline counters without pagination."""
+    try:
+        episodes = deps.episode_repo()
+        totals = RunRepository(db.get_engine()).totals()
+        totals.update(episodes.completed_counts())
+        return totals
+    except Exception:
+        return {
+            "episodes_discovered": 0,
+            "transcripts_fetched": 0,
+            "distilled": 0,
+            "reprocessed": 0,
+            "failures": 0,
+            "episodes_total": 0,
+            "runs_total": 0,
+        }

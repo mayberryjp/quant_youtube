@@ -41,6 +41,7 @@ curl http://localhost:8022/allin/health
 - GET /allin/health
 - GET /allin/ready
 - GET /allin/stats
+- GET /allin/summary
 - GET /episodes
 - GET /episodes/{id}
 - DELETE /episodes/{id}

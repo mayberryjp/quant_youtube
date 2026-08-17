@@ -159,3 +159,17 @@ class RunRepository:
                 last.get("last_heartbeat").isoformat() if last.get("last_heartbeat") else None
             ),
         }
+
+    def totals(self) -> dict[str, int]:
+        sql = text(
+            """
+            SELECT count(*) AS runs_total,
+                   COALESCE(sum(episodes_discovered), 0) AS episodes_discovered,
+                   COALESCE(sum(reprocessed), 0) AS reprocessed,
+                   COALESCE(sum(failures), 0) AS failures
+              FROM allin.ingest_runs
+            """
+        )
+        with self.engine.connect() as conn:
+            row = conn.execute(sql).mappings().one()
+        return {key: int(value or 0) for key, value in row.items()}

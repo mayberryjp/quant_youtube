@@ -93,6 +93,29 @@ def run_all_once(run_date=None) -> dict:
     return result
 
 
+def run_transcript_once(*, limit: int = 200, run_date=None):
+    """Run one transcript pass and attach its counters to the daily run."""
+    result = build_transcript_service().run(limit=limit)
+    _record_stage_result(run_date, result, "transcripts_fetched")
+    return result
+
+
+def run_distill_once(*, limit: int = 200, run_date=None):
+    """Run one distillation pass and attach its counters to the daily run."""
+    result = build_distill_service().run(limit=limit)
+    _record_stage_result(run_date, result, "distilled")
+    return result
+
+
+def _record_stage_result(run_date, result, *counter_names) -> None:
+    if not result:
+        return
+    run_date = run_date or datetime.now(timezone.utc).date()
+    counters = {name: result.get(name, 0) for name in counter_names}
+    counters["failures"] = result.get("failures", 0)
+    deps.run_repo().add_counters(run_date, **counters)
+
+
 def requeue_episode(video_id: str, engine=None) -> dict:
     """Full requeue for one episode: reset, re-fetch the transcript, then re-distill."""
     engine = engine or db.get_engine()

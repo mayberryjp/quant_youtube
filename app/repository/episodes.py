@@ -348,3 +348,16 @@ class EpisodeRepository:
     def count_total(self) -> int:
         with self.engine.connect() as conn:
             return int(conn.execute(text("SELECT count(*) FROM allin.episodes")).scalar_one())
+
+    def completed_counts(self) -> dict[str, int]:
+        sql = text(
+            """
+            SELECT count(*) AS episodes_total,
+                   count(fetched_at) AS transcripts_fetched,
+                   count(distilled_at) AS distilled
+              FROM allin.episodes
+            """
+        )
+        with self.engine.connect() as conn:
+            row = conn.execute(sql).mappings().one()
+        return {key: int(value or 0) for key, value in row.items()}

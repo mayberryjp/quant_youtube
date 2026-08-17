@@ -56,6 +56,16 @@ class StatsResponse(BaseModel):
     last_heartbeat: str | None = None
 
 
+class SummaryResponse(BaseModel):
+    episodes_discovered: int = 0
+    transcripts_fetched: int = 0
+    distilled: int = 0
+    reprocessed: int = 0
+    failures: int = 0
+    episodes_total: int = 0
+    runs_total: int = 0
+
+
 class IngestRunResponse(BaseModel):
     run_date: date
     status: str
