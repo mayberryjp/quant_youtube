@@ -55,5 +55,5 @@ def poll_loop(run_once, *, name: str, interval: int) -> None:
         except Exception:
             log.exception("%s loop failed", name)
         sleep_for = max(5, interval)
-        log.info("%s idle, next poll in %ds", name, sleep_for)
+        log.debug("%s idle, next poll in %ds", name, sleep_for)
         time.sleep(sleep_for)
