@@ -56,7 +56,6 @@ class DistillService:
         totals: Counter = Counter()
         pending = self.episodes.list_pending_distill(limit=limit)
         if not pending:
-            log.debug("distill status pass: no submitted jobs (limit=%d)", limit)
             return totals
         log.info("distill status pass: checking %d submitted job(s)", len(pending))
         for episode in pending:
