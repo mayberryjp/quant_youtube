@@ -33,7 +33,6 @@ class TranscriptService:
         totals: Counter = Counter()
         pending = self.episodes.list_needing_transcript(limit=limit, max_attempts=self.max_attempts)
         if not pending:
-            log.info("transcript pass: no episodes need a transcript (limit=%d, max_attempts=%d)", limit, self.max_attempts)
             return totals
         log.info("transcript pass: %d episode(s) to fetch (limit=%d)", len(pending), limit)
         for i, episode in enumerate(pending, 1):
