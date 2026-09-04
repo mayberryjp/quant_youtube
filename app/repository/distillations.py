@@ -38,13 +38,13 @@ class DistillationRepository:
     def upsert(self, d: Distillation) -> Distillation:
         with self.engine.begin() as conn:
             conn.execute(
-                text("UPDATE allin.distillations SET is_current = false WHERE episode_id = :eid"),
+                text("UPDATE youtube.distillations SET is_current = false WHERE episode_id = :eid"),
                 {"eid": d.episode_id},
             )
             row = conn.execute(
                 text(
                     """
-                    INSERT INTO allin.distillations
+                    INSERT INTO youtube.distillations
                         (episode_id, model, prompt_version, summary, key_topics, segments, token_usage,
                          request_payload, response_payload, request_id, is_current)
                     VALUES
@@ -81,7 +81,7 @@ class DistillationRepository:
 
     def get_current(self, episode_id: int) -> Distillation | None:
         sql = text(
-            f"SELECT {_COLUMNS} FROM allin.distillations WHERE episode_id = :eid AND is_current"
+            f"SELECT {_COLUMNS} FROM youtube.distillations WHERE episode_id = :eid AND is_current"
         )
         with self.engine.connect() as conn:
             row = conn.execute(sql, {"eid": episode_id}).mappings().first()
@@ -91,7 +91,7 @@ class DistillationRepository:
         if not episode_ids:
             return {}
         sql = text(
-            f"SELECT {_COLUMNS} FROM allin.distillations WHERE is_current AND episode_id = ANY(:ids)"
+            f"SELECT {_COLUMNS} FROM youtube.distillations WHERE is_current AND episode_id = ANY(:ids)"
         )
         with self.engine.connect() as conn:
             rows = conn.execute(sql, {"ids": list(episode_ids)}).mappings().all()

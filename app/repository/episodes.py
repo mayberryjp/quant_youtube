@@ -30,7 +30,7 @@ class EpisodeRepository:
             return 0
         sql = text(
             """
-            INSERT INTO allin.episodes
+            INSERT INTO youtube.episodes
                 (video_id, channel_slug, title, published_at, source_url,
                  thumbnail_url, description, duration_seconds, status)
             VALUES
@@ -46,14 +46,14 @@ class EpisodeRepository:
         return inserted
 
     def get_by_identifier(self, video_id: str) -> Episode | None:
-        sql = text(f"SELECT {_COLUMNS}, raw_text FROM allin.episodes WHERE video_id = :vid")
+        sql = text(f"SELECT {_COLUMNS}, raw_text FROM youtube.episodes WHERE video_id = :vid")
         with self.engine.connect() as conn:
             row = conn.execute(sql, {"vid": video_id}).mappings().first()
         return _row_to_episode(row) if row else None
 
     def get_by_id(self, episode_id: int) -> Episode | None:
         sql = text(
-            f"SELECT {_COLUMNS}, raw_text FROM allin.episodes WHERE id = :id"
+            f"SELECT {_COLUMNS}, raw_text FROM youtube.episodes WHERE id = :id"
         )
         with self.engine.connect() as conn:
             row = conn.execute(sql, {"id": episode_id}).mappings().first()
@@ -71,7 +71,7 @@ class EpisodeRepository:
     ) -> None:
         sql = text(
             """
-            UPDATE allin.episodes
+            UPDATE youtube.episodes
             SET raw_text = :raw_text,
                 content_hash = :content_hash,
                 transcript_language = :transcript_language,
@@ -106,7 +106,7 @@ class EpisodeRepository:
     ) -> None:
         sql = text(
             """
-            UPDATE allin.episodes
+            UPDATE youtube.episodes
             SET status = 'skipped',
                 duration_seconds = COALESCE(:duration_seconds, duration_seconds),
                 last_error = :reason
@@ -134,7 +134,7 @@ class EpisodeRepository:
         status_val = status.value if isinstance(status, EpisodeStatus) else status
         sql = text(
             """
-            UPDATE allin.episodes
+            UPDATE youtube.episodes
             SET status = :status,
                 last_error = :last_error,
                 attempts = attempts + :attempt_bump
@@ -155,7 +155,7 @@ class EpisodeRepository:
     def set_distill_job(self, episode_id: int, job_id: str | None) -> None:
         with self.engine.begin() as conn:
             conn.execute(
-                text("UPDATE allin.episodes SET distill_job_id = :job_id WHERE id = :id"),
+                text("UPDATE youtube.episodes SET distill_job_id = :job_id WHERE id = :id"),
                 {"id": episode_id, "job_id": job_id},
             )
 
@@ -163,7 +163,7 @@ class EpisodeRepository:
         with self.engine.begin() as conn:
             conn.execute(
                 text(
-                    "UPDATE allin.episodes SET distill_attempts = distill_attempts + 1 "
+                    "UPDATE youtube.episodes SET distill_attempts = distill_attempts + 1 "
                     "WHERE id = :id"
                 ),
                 {"id": episode_id},
@@ -173,14 +173,14 @@ class EpisodeRepository:
         column = {"distilled": "distilled_at"}[stage]
         with self.engine.begin() as conn:
             conn.execute(
-                text(f"UPDATE allin.episodes SET {column} = :now WHERE id = :id"),
+                text(f"UPDATE youtube.episodes SET {column} = :now WHERE id = :id"),
                 {"id": episode_id, "now": datetime.now(timezone.utc)},
             )
 
     def reset_for_reprocess(self, episode_id: int) -> bool:
         sql = text(
             """
-            UPDATE allin.episodes
+            UPDATE youtube.episodes
             SET status = 'fetched',
                 last_error = NULL,
                 distill_job_id = NULL,
@@ -194,7 +194,7 @@ class EpisodeRepository:
     def reset_full(self, episode_id: int) -> bool:
         sql = text(
             """
-            UPDATE allin.episodes
+            UPDATE youtube.episodes
             SET status = 'discovered',
                 raw_text = NULL,
                 content_hash = NULL,
@@ -213,13 +213,13 @@ class EpisodeRepository:
 
     def delete(self, episode_id: int) -> bool:
         with self.engine.begin() as conn:
-            return (conn.execute(text("DELETE FROM allin.episodes WHERE id = :id"), {"id": episode_id}).rowcount or 0) > 0
+            return (conn.execute(text("DELETE FROM youtube.episodes WHERE id = :id"), {"id": episode_id}).rowcount or 0) > 0
 
     def list_needing_transcript(self, *, limit: int = 200, max_attempts: int = 5) -> list[Episode]:
         """Episodes with no transcript yet: freshly discovered or a retryable failure."""
         sql = text(
             f"""
-            SELECT {_COLUMNS}, raw_text FROM allin.episodes
+            SELECT {_COLUMNS}, raw_text FROM youtube.episodes
              WHERE status = 'discovered'
                 OR (status = 'failed' AND raw_text IS NULL AND attempts < :max_attempts)
              ORDER BY published_at DESC NULLS LAST, id DESC
@@ -234,7 +234,7 @@ class EpisodeRepository:
         """Episodes ready to submit to distillation, excluding already-submitted jobs."""
         sql = text(
             f"""
-            SELECT {_COLUMNS}, raw_text FROM allin.episodes
+            SELECT {_COLUMNS}, raw_text FROM youtube.episodes
              WHERE (status = 'fetched' AND distill_job_id IS NULL)
                 OR (status = 'failed' AND raw_text IS NOT NULL AND distill_job_id IS NULL
                     AND distill_attempts < :max_attempts)
@@ -250,7 +250,7 @@ class EpisodeRepository:
         """Episodes whose queued distillation jobs need a status check."""
         sql = text(
             f"""
-            SELECT {_COLUMNS}, raw_text FROM allin.episodes
+            SELECT {_COLUMNS}, raw_text FROM youtube.episodes
              WHERE status = 'fetched' AND distill_job_id IS NOT NULL
              ORDER BY published_at DESC NULLS LAST, id DESC
              LIMIT :limit
@@ -291,13 +291,13 @@ class EpisodeRepository:
                    d.summary_char_count,
                    d.key_topic_count,
                    d.segment_count
-              FROM allin.episodes e
+              FROM youtube.episodes e
               LEFT JOIN (
                 SELECT episode_id,
                        char_length(summary) AS summary_char_count,
                        COALESCE(jsonb_array_length(key_topics), 0) AS key_topic_count,
                        COALESCE(jsonb_array_length(segments), 0) AS segment_count
-                  FROM allin.distillations
+                  FROM youtube.distillations
                  WHERE is_current
               ) d ON d.episode_id = e.id
               {where}
@@ -305,7 +305,7 @@ class EpisodeRepository:
              {limit_clause}
             """
         )
-        count_sql = text(f"SELECT count(*) FROM allin.episodes e{where}")
+        count_sql = text(f"SELECT count(*) FROM youtube.episodes e{where}")
         params_with_page = {**params}
         if page_size is not None:
             params_with_page.update(limit=page_size, offset=offset)
@@ -333,14 +333,14 @@ class EpisodeRepository:
             params["to_date"] = to_date
         if only_stale and current_model and current_prompt:
             clauses.append(
-                "NOT EXISTS (SELECT 1 FROM allin.distillations d "
+                "NOT EXISTS (SELECT 1 FROM youtube.distillations d "
                 "WHERE d.episode_id = e.id AND d.is_current "
                 "AND d.model = :cur_model AND d.prompt_version = :cur_prompt)"
             )
             params["cur_model"] = current_model
             params["cur_prompt"] = current_prompt
         where = " WHERE " + " AND ".join(clauses)
-        sql = text(f"SELECT {_COLUMNS}, raw_text FROM allin.episodes e{where} ORDER BY e.id")
+        sql = text(f"SELECT {_COLUMNS}, raw_text FROM youtube.episodes e{where} ORDER BY e.id")
         with self.engine.connect() as conn:
             rows = conn.execute(sql, params).mappings().all()
         return [_row_to_episode(r) for r in rows]
@@ -358,14 +358,14 @@ class EpisodeRepository:
             clauses.append("attempts < :max_attempts")
             params["max_attempts"] = max_attempts
         where = " WHERE " + " AND ".join(clauses)
-        sql = text(f"SELECT {_COLUMNS}, raw_text FROM allin.episodes{where} ORDER BY id")
+        sql = text(f"SELECT {_COLUMNS}, raw_text FROM youtube.episodes{where} ORDER BY id")
         with self.engine.connect() as conn:
             rows = conn.execute(sql, params).mappings().all()
         return [_row_to_episode(r) for r in rows]
 
     def count_total(self) -> int:
         with self.engine.connect() as conn:
-            return int(conn.execute(text("SELECT count(*) FROM allin.episodes")).scalar_one())
+            return int(conn.execute(text("SELECT count(*) FROM youtube.episodes")).scalar_one())
 
     def completed_counts(self) -> dict[str, int]:
         sql = text(
@@ -387,7 +387,7 @@ class EpisodeRepository:
                        WHERE lower(last_error) LIKE 'transcript unavailable for%'
                           OR lower(last_error) LIKE 'no transcript available for%'
                    ) AS transcript_unavailable
-              FROM allin.episodes
+              FROM youtube.episodes
             """
         )
         with self.engine.connect() as conn:

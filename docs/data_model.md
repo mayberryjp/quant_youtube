@@ -1,10 +1,10 @@
 # Data Model
 
-Schema: allin
+Schema: youtube
 
 ## Tables
 
-1. allin.episodes
+1. youtube.episodes
 - One row per YouTube video discovered for the All-In channel
 - Tracks pipeline status transitions: discovered, fetched, distilled, done, failed
 - Stores raw transcript text and transcript metadata
@@ -13,13 +13,13 @@ Schema: allin
 - `distill_attempts` counts failed distill attempts (separate from the transcript `attempts`
   counter); the episode stops being retried once it reaches `DISTILL_MAX_ATTEMPTS`
 
-2. allin.distillations
+2. youtube.distillations
 - Versioned distillation outputs by episode_id + model + prompt_version
 - Maintains a current version marker via is_current
 - Stores normalized summary fields plus token usage
 - Stores the complete `quant_distill` request and response JSON and upstream request ID
 
-3. allin.ingest_runs
+3. youtube.ingest_runs
 - One row per run_date for worker execution tracking
 - Records counters and run outcome status
 - Carries heartbeat timestamp for readiness checks

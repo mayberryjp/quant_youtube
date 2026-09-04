@@ -32,7 +32,7 @@ class RunRepository:
             conn.execute(
                 text(
                     """
-                    INSERT INTO allin.ingest_runs (run_date, status, last_heartbeat)
+                    INSERT INTO youtube.ingest_runs (run_date, status, last_heartbeat)
                     VALUES (:run_date, 'running', :heartbeat)
                     ON CONFLICT (run_date) DO UPDATE SET
                         status = 'running',
@@ -56,7 +56,7 @@ class RunRepository:
             conn.execute(
                 text(
                     """
-                    UPDATE allin.ingest_runs
+                    UPDATE youtube.ingest_runs
                     SET episodes_discovered = episodes_discovered + :episodes_discovered,
                         transcripts_fetched = transcripts_fetched + :transcripts_fetched,
                         distilled = distilled + :distilled,
@@ -75,7 +75,7 @@ class RunRepository:
             conn.execute(
                 text(
                     """
-                    UPDATE allin.ingest_runs
+                    UPDATE youtube.ingest_runs
                     SET status = :status,
                         notes = :notes,
                         updated_at = CURRENT_TIMESTAMP,
@@ -96,13 +96,13 @@ class RunRepository:
         self.start_run(today)
 
     def last_run(self) -> dict | None:
-        sql = text("SELECT * FROM allin.ingest_runs ORDER BY run_date DESC LIMIT 1")
+        sql = text("SELECT * FROM youtube.ingest_runs ORDER BY run_date DESC LIMIT 1")
         with self.engine.connect() as conn:
             row = conn.execute(sql).mappings().first()
         return dict(row) if row else None
 
     def get_by_run_date(self, run_date: date) -> IngestRun | None:
-        sql = text("SELECT * FROM allin.ingest_runs WHERE run_date = :run_date")
+        sql = text("SELECT * FROM youtube.ingest_runs WHERE run_date = :run_date")
         with self.engine.connect() as conn:
             row = conn.execute(sql, {"run_date": run_date}).mappings().first()
         return _row_to_run(row) if row else None
@@ -132,13 +132,13 @@ class RunRepository:
         limit_clause = "LIMIT :limit OFFSET :offset" if page_size is not None else ""
         sql = text(
             f"""
-            SELECT * FROM allin.ingest_runs
+            SELECT * FROM youtube.ingest_runs
              {where}
              ORDER BY run_date DESC
              {limit_clause}
             """
         )
-        count_sql = text(f"SELECT count(*) FROM allin.ingest_runs{where}")
+        count_sql = text(f"SELECT count(*) FROM youtube.ingest_runs{where}")
         params_with_page = {**params}
         if page_size is not None:
             params_with_page.update(limit=page_size, offset=offset)
@@ -170,7 +170,7 @@ class RunRepository:
                    COALESCE(sum(episodes_discovered), 0) AS episodes_discovered,
                    COALESCE(sum(reprocessed), 0) AS reprocessed,
                    COALESCE(sum(failures), 0) AS failures
-              FROM allin.ingest_runs
+              FROM youtube.ingest_runs
             """
         )
         with self.engine.connect() as conn:

@@ -22,7 +22,7 @@ The API already exposes:
 
 ## Required API Contract for Run History
 
-The front end needs a run-history endpoint backed by `allin.ingest_runs`.
+The front end needs a run-history endpoint backed by `youtube.ingest_runs`.
 If it does not already exist, the backend should add it.
 
 ### 1. List ingestion runs
@@ -169,4 +169,4 @@ Example job response:
 ## Open Backend Work
 
 If the run-history endpoints do not exist yet, they should be added to the API before the front end depends on them.
-The data already exists in `allin.ingest_runs` and `RunRepository`, so this is a read API addition rather than a schema change.
+The data already exists in `youtube.ingest_runs` and `RunRepository`, so this is a read API addition rather than a schema change.

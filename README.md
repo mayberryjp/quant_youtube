@@ -124,6 +124,6 @@ Configuration:
 - `DISTILL_SOURCE` (default `youtube`)
 - `DISTILL_MAX_CHUNK_CHARS` (default `12000`)
 
-The source transcript remains in `allin.episodes.raw_text`. The complete process request and
-authoritative response are stored in `allin.distillations.request_payload` and
-`allin.distillations.response_payload`; normalized summary fields remain available for list APIs.
+The source transcript remains in `youtube.episodes.raw_text`. The complete process request and
+authoritative response are stored in `youtube.distillations.request_payload` and
+`youtube.distillations.response_payload`; normalized summary fields remain available for list APIs.

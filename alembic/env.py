@@ -7,8 +7,11 @@ from sqlalchemy import engine_from_config, pool, text
 
 from app.config import settings
 
-# Isolate this project's migration bookkeeping from the shared public.alembic_version.
-VERSION_TABLE_SCHEMA = "allin"
+# Every table owned by this project (including Alembic's bookkeeping) lives in this schema.
+VERSION_TABLE_SCHEMA = "youtube"
+
+# Schema this project previously used; migration 0008 relocates its tables into VERSION_TABLE_SCHEMA.
+LEGACY_SCHEMA = "allin"
 
 config = context.config
 
@@ -42,6 +45,21 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{VERSION_TABLE_SCHEMA}"'))
+        # Relocate legacy migration bookkeeping before Alembic reads it, so an existing
+        # deployment keeps its revision history when the schema is renamed (see migration 0008).
+        connection.execute(
+            text(
+                f"""
+                DO $$
+                BEGIN
+                    IF to_regclass('{LEGACY_SCHEMA}.alembic_version') IS NOT NULL
+                       AND to_regclass('{VERSION_TABLE_SCHEMA}.alembic_version') IS NULL THEN
+                        ALTER TABLE {LEGACY_SCHEMA}.alembic_version SET SCHEMA {VERSION_TABLE_SCHEMA};
+                    END IF;
+                END $$;
+                """
+            )
+        )
         connection.commit()
         context.configure(
             connection=connection,
